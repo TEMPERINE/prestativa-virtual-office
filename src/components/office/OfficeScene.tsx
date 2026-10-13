@@ -2077,6 +2077,8 @@ export function OfficeScene({
   const leadChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const [hoveredAvatarUid, setHoveredAvatarUid] = useState<string | null>(null);
   const [avatarMenuUid, setAvatarMenuUid] = useState<string | null>(null);
+  // Origem do mesmo menu: avatar no mapa ou linha da lista Equipe (só muda a âncora).
+  const [avatarMenuFrom, setAvatarMenuFrom] = useState<"map" | "list">("map");
 
   const broadcastFollowStop = useCallback((toUid: string) => {
     const ch = leadChannelRef.current;
@@ -3262,7 +3264,7 @@ export function OfficeScene({
                     <AvatarHitArea
                       profileId={profile.id}
                       displayName={profile.display_name}
-                      isOpen={avatarMenuUid === profile.id}
+                      isOpen={avatarMenuUid === profile.id && avatarMenuFrom === "map"}
                       onHoverIn={() => {
                         setHoveredAvatarUid(profile.id);
                         setHoveredZone(null);
@@ -3270,9 +3272,10 @@ export function OfficeScene({
                       onHoverOut={() =>
                         setHoveredAvatarUid((c) => (c === profile.id ? null : c))
                       }
-                      onToggle={() =>
-                        setAvatarMenuUid((cur) => (cur === profile.id ? null : profile.id))
-                      }
+                      onToggle={() => {
+                        setAvatarMenuFrom("map");
+                        setAvatarMenuUid((cur) => (cur === profile.id && avatarMenuFrom === "map" ? null : profile.id));
+                      }}
                       menu={
                         <AvatarInteractionMenu
                           profile={profile}
@@ -4146,6 +4149,20 @@ export function OfficeScene({
                   zone={p.zone}
                   online
                   isMe={me?.id === profile.id}
+                  menuOpen={avatarMenuUid === profile.id && avatarMenuFrom === "list"}
+                  onToggleMenu={me?.id === profile.id ? undefined : () => {
+                    setAvatarMenuFrom("list");
+                    setAvatarMenuUid((cur) => (cur === profile.id && avatarMenuFrom === "list" ? null : profile.id));
+                  }}
+                  menu={
+                    <AvatarInteractionMenu
+                      profile={profile}
+                      onClose={() => setAvatarMenuUid(null)}
+                      onFollow={() => { startFollowing(profile.id); setAvatarMenuUid(null); }}
+                      onLead={() => { requestLead(profile.id); setAvatarMenuUid(null); }}
+                      onJoin={() => { requestJoin(profile.id); setAvatarMenuUid(null); }}
+                    />
+                  }
                 />
               ))}
               {offlineList.map((profile) => (
@@ -4823,18 +4840,62 @@ function TeamRow({
   zone,
   online,
   isMe,
+  menuOpen,
+  onToggleMenu,
+  menu,
 }: {
   profile: Profile;
   zone?: string;
   online: boolean;
   isMe?: boolean;
+  menuOpen?: boolean;
+  onToggleMenu?: () => void;
+  menu?: React.ReactNode;
 }) {
   const zoneLabel = zone ? findZoneById(zone)?.label : undefined;
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const interactive = !!onToggleMenu;
+
+  // Mesmo menu do mapa, ancorado à linha (prefere a esquerda do painel; nunca cortado).
+  useEffect(() => {
+    if (!menuOpen) { setPos(null); return; }
+    let raf = 0;
+    const tick = () => {
+      const el = rowRef.current;
+      if (el) {
+        const r = el.getBoundingClientRect();
+        const menuW = 240, menuH = 180, margin = 8;
+        let left = r.left - menuW - 12;
+        if (left < margin) left = Math.min(r.right + 12, window.innerWidth - menuW - margin);
+        if (left < margin) left = margin;
+        let top = r.top - 4;
+        if (top + menuH > window.innerHeight - margin) top = window.innerHeight - menuH - margin;
+        if (top < margin) top = margin;
+        setPos((prev) => (prev && prev.left === left && prev.top === top ? prev : { left, top }));
+      }
+      raf = window.requestAnimationFrame(tick);
+    };
+    tick();
+    return () => window.cancelAnimationFrame(raf);
+  }, [menuOpen]);
+
   return (
     <div
-      className={`flex items-center gap-3 px-2.5 py-2 rounded-lg ${
-        isMe ? "bg-primary/10" : "hover:bg-muted/60"
-      } transition cursor-pointer`}
+      ref={rowRef}
+      data-avatar-menu={interactive ? "" : undefined}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      aria-haspopup={interactive ? "menu" : undefined}
+      aria-expanded={interactive ? !!menuOpen : undefined}
+      aria-label={interactive ? `Interagir com ${profile.display_name}` : undefined}
+      onClick={interactive ? () => onToggleMenu!() : undefined}
+      onKeyDown={interactive ? (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggleMenu!(); }
+      } : undefined}
+      className={`flex items-center gap-3 px-2.5 py-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
+        isMe ? "bg-primary/10" : menuOpen ? "bg-primary/10 ring-1 ring-primary/40" : "hover:bg-muted/60"
+      } transition ${interactive ? "cursor-pointer" : ""}`}
     >
       <div className="relative shrink-0">
         <ProfileSpriteAvatar spriteId={profile.sprite_id} size={32} offline={!online} />
@@ -4852,6 +4913,17 @@ function TeamRow({
           <div className="text-[11px] text-muted-foreground truncate">{zoneLabel}</div>
         )}
       </div>
+      {menuOpen && pos && menu && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            data-avatar-menu
+            onClick={(e) => e.stopPropagation()}
+            style={{ position: "fixed", left: pos.left, top: pos.top, zIndex: 2147483647, pointerEvents: "auto" }}
+          >
+            {menu}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
