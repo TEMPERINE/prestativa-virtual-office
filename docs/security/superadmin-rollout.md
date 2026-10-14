@@ -1,6 +1,8 @@
 # Superadmin: pacote executável e gates de aplicação
 
-Preparado em 14/10/2026 na branch `codex/workspace-membership-hardening`. **Não aplicado no banco real, publicado, mergeado ou enviado ao GitHub nesta tarefa.** A autorização atual cobre preparação local e testes isolados. Execução de qualquer etapa no banco real depende de autorização explícita.
+Preparado em 14/10/2026 na branch `codex/workspace-membership-hardening` e **enviado ao GitHub no commit `c2cacabe85d50e93dff5f81cb237bf51e9c3a813`**. Não aplicado no banco real, mergeado ou publicado como aplicação. A autorização atual cobre somente a preparação da execução controlada das fases 1, 2 e 3; executar qualquer etapa no banco real depende de nova autorização explícita.
+
+Roteiro operacional dessas três fases: [superadmin-phases-1-3-runbook.md](superadmin-phases-1-3-runbook.md).
 
 ## Arquivos finais e ordem
 
