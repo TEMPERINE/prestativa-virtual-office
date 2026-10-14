@@ -1127,7 +1127,7 @@ export type Database = {
     }
     Enums: {
       account_plan: "essencial" | "pro" | "premium"
-      app_role: "admin" | "supervisor" | "member" | "master"
+      app_role: "admin" | "supervisor" | "member" | "master" | "superadmin"
       workspace_role: "owner" | "admin" | "member"
     }
     CompositeTypes: {
@@ -1257,7 +1257,7 @@ export const Constants = {
   public: {
     Enums: {
       account_plan: ["essencial", "pro", "premium"],
-      app_role: ["admin", "supervisor", "member", "master"],
+      app_role: ["admin", "supervisor", "member", "master", "superadmin"],
       workspace_role: ["owner", "admin", "member"],
     },
   },
