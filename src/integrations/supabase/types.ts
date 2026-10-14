@@ -1118,6 +1118,84 @@ export type Database = {
         Args: { _batch_id: string; _meeting_id: string }
         Returns: number
       }
+      platform_acknowledge_superadmin_access: { Args: never; Returns: Json }
+      platform_assign_workspace_member: {
+        Args: {
+          new_profile?: string
+          new_role: Database["public"]["Enums"]["workspace_role"]
+          target: string
+          ws: string
+        }
+        Returns: undefined
+      }
+      platform_authorize_cutover: {
+        Args: { application_commit: string }
+        Returns: undefined
+      }
+      platform_bootstrap_superadmin: { Args: never; Returns: Json }
+      platform_create_workspace: {
+        Args: {
+          owner: string
+          ws_name: string
+          ws_slug: string
+          ws_tier?: number
+        }
+        Returns: string
+      }
+      platform_create_workspace_invite: {
+        Args: { invite_email?: string; valid_for?: string; ws: string }
+        Returns: string
+      }
+      platform_is_superadmin: { Args: never; Returns: boolean }
+      platform_recover_superadmin: {
+        Args: { replacement: string }
+        Returns: Json
+      }
+      platform_remove_workspace_member: {
+        Args: { target: string; ws: string }
+        Returns: undefined
+      }
+      platform_revoke_workspace_invite: {
+        Args: { invite_id: string }
+        Returns: undefined
+      }
+      platform_set_global_role: {
+        Args: {
+          enabled: boolean
+          new_role: Database["public"]["Enums"]["app_role"]
+          target: string
+        }
+        Returns: undefined
+      }
+      platform_set_member_profile: {
+        Args: { new_profile: string; target: string; ws: string }
+        Returns: undefined
+      }
+      platform_set_workspace_member: {
+        Args: {
+          new_role: Database["public"]["Enums"]["workspace_role"]
+          target: string
+          ws: string
+        }
+        Returns: undefined
+      }
+      platform_transfer_workspace_owner: {
+        Args: {
+          former_role?: Database["public"]["Enums"]["workspace_role"]
+          new_owner: string
+          ws: string
+        }
+        Returns: undefined
+      }
+      platform_update_workspace: {
+        Args: {
+          new_name?: string
+          new_owner?: string
+          new_tier?: number
+          ws: string
+        }
+        Returns: undefined
+      }
       release_office_session: {
         Args: { _generation: number; _session_id: string }
         Returns: boolean
