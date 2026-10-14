@@ -64,7 +64,7 @@ function WorkspacesHubPage() {
       .from("user_roles")
       .select("role")
       .eq("user_id", u.user.id);
-    setIsAdmin((roles ?? []).some((r: any) => r.role === "admin"));
+    setIsAdmin((roles ?? []).some((r: any) => r.role === "superadmin"));
 
     const { data: mems } = await supabase
       .from("workspace_members")

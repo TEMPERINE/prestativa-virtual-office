@@ -1,14 +1,14 @@
-# Superadmin — desenho final proposto para revisão
+# Superadmin — desenho implementado, aguardando homologação
 
-**Estado:** SQL proposto e testes isolados. Nada aplicado, mergeado, publicado ou enviado ao GitHub nesta tarefa. Guards/UI ainda não foram implementados. Branch: `codex/workspace-membership-hardening`.
+**Estado:** migrations executáveis, RPCs, guards/UI e testes preparados localmente na branch `codex/workspace-membership-hardening`. Nenhum SQL executado no banco real; nenhum merge, push ou publicação nesta tarefa.
 
-O SQL completo está em `docs/security/proposals/superadmin/`, fora de `supabase/migrations`. O candidato antigo `docs/drafts/workspace-membership-insert-hardening.sql` fica superado; não aplicar junto deste pacote.
+O manifesto vigente, com nomes finais, SQL completo por arquivo, gates de aplicação e rollback, está em [superadmin-rollout.md](superadmin-rollout.md). `docs/security/proposals/superadmin/01–06` e o draft de hardening são referências históricas: **não aplicar junto das migrations finais**.
 
 ## Evidência real e limites
 
-O responsável confirmou a partir do banco real: admin=1, master=1, interseção=1, somente_admin=0, somente_master=0; a conta pretendida é essa interseção. Não armazenar nome, UUID, e-mail ou credenciais no Git.
+O responsável confirmou: admin=1, master=1, interseção=1, somente_admin/master=0; 1 workspace, 17 members, nenhum admin local, 1 owner canônico e nenhum convite. Não há normalização legada necessária com esse estado. O bootstrap revalida a interseção e o hardening aborta se houver novas inconsistências.
 
-Essa confirmação não comprova o catálogo real. Owners, grants, SECURITY DEFINER, FORCE RLS e funções/policies adicionais ainda precisam ser confrontados com o repo usando `00-preflight-readonly.sql`. As propostas pressupõem instalação pelo owner confiável `postgres`, capaz de ignorar RLS nas tabelas relevantes. Não alterar owners em lote. Fixtures isoladas não comprovam privilégios do banco real.
+O inventário fornecido confirmou RLS ativo e FORCE RLS falso nas quatro tabelas centrais; helpers SECURITY DEFINER e os caminhos de privilégio descritos no manifesto. O JSON integral não foi anexado nesta conversa. Antes de aplicar, reconferir catálogo/owners/grants contra `00-preflight-readonly.sql`, inclusive owner confiável `postgres` e Auth.deleted_at/banned_until. Fixtures não comprovam configuração do Supabase real.
 
 ## Permissões finais
 
@@ -27,7 +27,7 @@ A role owner deve concordar com `workspaces.owner_id`. Superadmin pode transferi
 
 ## Atribuição e proteção
 
-- Migrations criam infraestrutura; não atribuem Superadmin automaticamente.
+- Migrations automáticas criam apenas infraestrutura. O SQL de atribuição é separado e depende de execução explicitamente autorizada.
 - `platform_bootstrap_superadmin()` é service-only, sem identidade por argumento. Confere counts 1/1/1, seleciona a única interseção admin+master ativa e atribui a label explícita. Mudança de inventário aborta. Preserva as labels legadas.
 - A interseção é critério apenas dessa inicialização, nunca autorização permanente. Outra conta admin+master não se torna Superadmin.
 - Índice parcial limita a uma atribuição de Superadmin, mesmo se o titular ficar inacessível. Recuperação troca essa atribuição em uma transação.
@@ -37,25 +37,13 @@ A role owner deve concordar com `workspaces.owner_id`. Superadmin pode transferi
 - Auditoria privada guarda ator/alvo/workspace/ação e campos mínimos de role, somente no banco. Sem senhas, tokens, chaves ou conteúdo de chat. Nenhum ID real vai ao código versionado.
 - service_role nunca vai ao frontend. Um operador root capaz de remover proteções permanece autoridade confiável; proteção contra acidente não substitui custódia dessa credencial.
 
-## Migrations propostas: ordem e conteúdo
+## Migrations finais e ordem
 
-| Arquivo | Alteração exata |
-| --- | --- |
-| `00-preflight-readonly.sql` | Somente metadados/contagens; nenhum corpo de função ou dado pessoal no resultado |
-| `01-role.sql` | Adiciona superadmin ao enum; COMMIT separado antes de 02 |
-| `02-foundation.sql` | Schema/estado/auditoria privados, índice singleton, proteções, check do ator, bootstrap/recovery, confirmação e atestação |
-| `03-administration-rpcs.sql` | Roles globais, memberships, perfil, transferência/criação de workspace, criação/revogação de convites validadas |
-| `04-membership-cutover.sql` | Fecha autoentrada/promoção/escritas administrativas cliente; protege owner_id; endurece aceite de convites |
-| `05-legacy-overrides-cutover.sql` | Retira overrides globais das policies/funções mapeadas; mantém capacidades limitadas e marca corte concluído |
-| `06-cutover-transaction.sql` | Wrapper psql para 04+05 na mesma transação; não é comando de produção autorizado |
+Consulte a tabela de seis arquivos em [superadmin-rollout.md](superadmin-rollout.md). Ordem: enum → foundation/RPCs → bootstrap privado → rollout/homologação da aplicação → confirmação do titular + atestação service-only do commit → memberships/convites → helpers/perfil/gravação → nova homologação → retirada dos overrides globais.
 
-Sequência de aplicação futura: 01 → 02 → bootstrap privado → 03 → rollout dos guards/UI/handlers → homologação completa → confirmação autenticada → atestação service-only do SHA da aplicação → 04+05 atômicos.
+Somente os dois primeiros SQLs ficam em `supabase/migrations`. Os quatro restantes ficam em `supabase/staged-migrations`, fora da descoberta automática. Cada etapa posterior tem transação própria; erro reverte a etapa inteira, preservando as fases anteriores. O enum precisa de commit separado antes de seu uso.
 
-RPCs locais de 03 ficam desabilitadas até 04, pois antes disso um falso admin poderia ter vindo da autoentrada insegura. Não estender labels admin/master a outras contas durante a janela legada; novos handlers devem bloquear isso.
-
-`platform_acknowledge_superadmin_access()` prova a role da sessão, não funcionamento de todos os painéis. `platform_authorize_cutover(application_commit text)` registra uma atestação do operador após homologação do commit completo; só service_role executa. O gate de corte segura lock até COMMIT, excluindo recuperação concorrente.
-
-04 aborta por policies inesperadas, owners não canônicos ou convites privilegiados pendentes. Esses casos exigem correção privada deliberada, sem limpeza em lote. Como a policy antiga permitia autoentrada com qualquer role, também validar privadamente a legitimidade dos admins/owners/estratégicos já armazenados: fechar a policy não prova a origem desses privilégios. A busca final por has_role é defesa adicional, não prova completa de ausência de overrides em funções não inventariadas. Não aplicar antes de confrontar o catálogo real e homologar o aplicativo.
+RPCs locais ficam desabilitadas até o hardening, pois antes disso a policy de autoentrada não comprovava a legitimidade do admin local. Não ampliar admin/master durante a janela legada. `platform_acknowledge_superadmin_access` confirma a sessão; `platform_authorize_cutover` registra a homologação do commit pelo operador. O gate mantém lock até COMMIT, impedindo recuperação concorrente durante a etapa.
 
 ## Funções/RPCs
 
@@ -76,8 +64,10 @@ Todas derivam o ator de `auth.uid()`. UUIDs target/owner/new_owner são alvos, n
 | `platform_create_workspace(text,text,uuid,smallint) → uuid` | Só Superadmin, workspace + membership owner atômicos |
 | `platform_create_workspace_invite(uuid,text,interval) → uuid` | Gestor validado; sempre member |
 | `platform_revoke_workspace_invite(uuid) → void` | Gestor validado |
+| `platform_assign_workspace_member(uuid,uuid,workspace_role,text) → void` | Role + perfil em uma transação |
+| `platform_update_workspace(uuid,text,smallint,uuid) → void` | Superadmin; metadados + transferência atômicos |
 
-Existentes alteradas: workspace_accept_invite, workspace_members_guard_profile, can_read_meeting_participants, can_record_meeting. Aceite mantém token, email lock, expiração, usos e capacidade; adiciona validação do emissor ainda autorizado, role member e lock workspace→convite. Convites privilegiados não promovem nesta fase; promoção é operação explícita do Superadmin. signup_invite_redeem permanece validando token e criando workspace + owner.
+Existentes alteradas: is_workspace_admin, is_workspace_member, has_role, current_user_email, workspace_accept_invite, workspace_members_guard_profile, can_read_meeting_participants, can_record_meeting. Wrappers públicos permitem ator próprio e membership de colegas do workspace já acessível; roles e capacidades de gravação não enumeram terceiros. PUBLIC/anon perdem EXECUTE; helpers privados continuam inacessíveis. Aceite mantém token, email lock, expiração, usos e capacidade; adiciona validação do emissor ainda autorizado, role member e lock workspace→convite. Convites privilegiados não promovem nesta fase; promoção é operação explícita do Superadmin. signup_invite_redeem permanece validando token e criando workspace + owner.
 
 ## Policies/grants afetados segundo o repo
 
@@ -97,7 +87,7 @@ Existentes alteradas: workspace_accept_invite, workspace_members_guard_profile, 
 | meeting_participants | Policy existente usa can_read_meeting_participants ajustada, sem override admin/master; administração global usa servidor |
 | user_roles | SELECT próprio preservado; nenhuma escrita cliente nova; TRUNCATE revogado/protegido |
 
-## Guards/UI afetados no rollout separado
+## Guards/UI implementados; rollout separado
 
 - Novo guard central `requireSuperadmin(context)` consulta a role atual por requisição antes de service_role. Não confia em metadata, formulário, nome/e-mail nem role da UI.
 - `src/lib/admin/{accounts,workspaces,sprites,ai-sprite}.functions.ts`: substituir quatro ensureAdmin; validar todos os handlers globais. Exclusão/desativação protege qualquer titular Superadmin. Membership/profile/owner transfer usam RPC; criação não faz duas escritas separadas.
@@ -105,27 +95,18 @@ Existentes alteradas: workspace_accept_invite, workspace_members_guard_profile, 
 - `workspaces.new.tsx` + `src/lib/workspace/create.ts`: separar criação própria elegível da administração global. Superadmin sem labels antigas usa RPC e inicialização de mapa escopada; cópia cross-workspace usa handler global validado.
 - `src/components/office/OfficeScene.tsx`: gate isMasterAdmin hoje verifica admin; migrar só autorização visual, preservando Office persistente/overlay real.
 - `src/components/office/{MapEditor,MapSavePoints}.tsx` + `src/lib/map-overrides.ts`: disponibilizar handlers globais validados para leitura/edição sem membership. Operações/realtime locais continuam escopados.
-- Emissão de signup invites precisa de handler Superadmin antes de retirar escrita cliente; verificar também clientes fora deste repo.
+- `adminCreateSignupInvite` em accounts.functions.ts substitui emissão cliente por servidor autenticado; não há formulário de emissão neste repo. Validar eventuais clientes externos antes do corte.
 - `src/lib/meetings/recording.functions.ts` + `src/components/meetings/MeetingsPanel.tsx`: trocar somente gates globais admin/master. Hoje administradores globais podem acessar gravação pelo servidor sem membership; preservar essa capacidade para Superadmin. Participantes/destinatários normais mantêm membership. Sem mudança de Egress/R2/mídia.
 - `src/lib/meetings/record-permission.ts`: adicionar superadmin à capacidade membership-bound em paridade com SQL. Sem auto-join RTC.
-- `src/integrations/supabase/types.ts`: regenerar enum/RPCs.
+- `src/integrations/supabase/types.ts`: contratos locais de enum/RPCs atualizados; confrontar com geração oficial após aplicação em homologação.
 - Caminho legado temporário explícito durante transição; no final nenhum guard global usa admin || master. Nenhuma alteração de RTC/RoomManager/Presence/movimento/sessão/Desktop integra este pacote.
 
-## Rollback
+## Rollback e testes
 
-1. Antes do corte: interromper rollout; roles/policies legadas continuam. Manter infraestrutura aditiva; não apagar Superadmin/proteções nem tentar remover valor de enum. Recuperação de conta via service-only.
-2. Erro em 04+05: rollback automático da transação inteira. Policies antigas permanecem e RPCs locais não são ativadas parcialmente.
-3. Após o corte: voltar a commit de aplicação já compatível com Superadmin, manter hardening e corrigir para frente. Recuperação continua service-only. Nunca reabrir autoentrada nem equivalência automática admin/master.
-4. Versão antiga que só conhece admin não é rollback automático seguro. Se indispensável, preparar compatibilidade server-side limitada ao Superadmin real, com revisão própria. Restaurar policies antigas seria enfraquecimento explícito, fora deste procedimento.
+O procedimento vigente está em [superadmin-rollout.md](superadmin-rollout.md): transação por etapa, manutenção de infraestrutura aditiva, recuperação service-only e retorno somente a aplicativo compatível com Superadmin. Não remover label do enum nem restaurar autoentrada ou equivalência admin/master.
 
-Antes de executar: guardar commit de aplicação/SQL, backup privado do catálogo/dados, testes e confirmação do caminho de recuperação. Backups/IDs privados nunca são artifacts públicos.
+`PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_superadmin_proposals.py --migrations` testa os arquivos finais em PostgreSQL 16 descartável, sem rede/porta/dados reais. O modo sem flag mantém a referência histórica dos SQLs propostos. Policies e RPCs legadas vêm do repositório; Auth/Storage/REST são limites de fixtures.
 
-## Testes e limites
+A suite cobre bootstrap exclusivo, singleton, recuperação/concurrência, gates e idempotência; autoentrada/autopromoção negadas, owner_id alheio negado, criação válida, convite válido/inválido/expirado/revogado/privilegiado; local vs global; transações administrativas; integridade de owner; helpers/grants privados; RLS positivo em usuário autenticado após corte. Vitest executa handlers/UI reais com adaptadores de teste nas fronteiras.
 
-`PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_superadmin_proposals.py` executa todo o SQL proposto em PostgreSQL 16 descartável, sem network/porta/credenciais reais. Policies e RPCs originais vêm das migrations; Auth/Storage têm fixtures fictícias de schema, não serviços Supabase reais.
-
-Verificação desta preparação (2026-10-14): **90 asserções passaram**, incluindo dois cenários concorrentes e rollback de 04 quando 05 falha. O schema original, sem as propostas, falha por ausência do guard novo. Revisão independente encontrou riscos de concorrência, TRUNCATE e inicialização via recovery; foram corrigidos e cobertos por testes.
-
-Cobre bootstrap exclusivo, counts divergentes, ausência de promoção automática, singleton, proteção delete/demotion/ban/TRUNCATE, recuperação antes/depois do corte, gates, concorrência com ban e corte, autoentrada/autopromoção, owner_id falso, criação legítima, local vs global, RPC vs cliente, convites válidos/inválidos/expirados/revogados/exauridos/email incorreto/privilegiados, transferência atômica e erro de plano, signup válido, grants/auditoria e remoção de override de mapa/storage.
-
-Faltam antes da aplicação: catálogo/owners/grants reais, REST/JWT em Supabase de homologação, Auth admin API com trigger protetor, guards/UI/tipos implementados, homologação de todas as ações e overlays na composição real, regressão funcional do Office/reuniões. Testes SQL isolados não comprovam esses fluxos. Nenhuma aplicação em produção autorizada por este documento.
+Antes de aplicar faltam REST/JWT e Auth admin API em Supabase de homologação; geração oficial dos tipos; exercício de painéis e overlays na composição real, inclusive Superadmin sem membership nem labels antigas; regressão do Office/reuniões e ensaio privado de recuperação. SQL isolado não comprova essas condições nem que a conta real já possui Superadmin.

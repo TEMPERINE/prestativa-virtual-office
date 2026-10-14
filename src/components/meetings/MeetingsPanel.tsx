@@ -132,13 +132,12 @@ export function MeetingsPanel({ onBack, embedded = false }: { onBack?: () => voi
         // Permissão de exclusão (apenas para exibir o botão — o servidor revalida).
         if (uid) {
           const wsIds = Array.from(new Set(meetingList.map((m) => m.workspace_id)));
-          const [{ data: eg }, adm, mst, ...wsAdm] = await Promise.all([
+          const [{ data: eg }, superadmin, ...wsAdm] = await Promise.all([
             sb.from("meeting_egress").select("meeting_id, started_by").in("meeting_id", ids),
-            sb.rpc("has_role", { _user_id: uid, _role: "admin" }),
-            sb.rpc("has_role", { _user_id: uid, _role: "master" }),
+            sb.rpc("platform_is_superadmin"),
             ...wsIds.map((w) => sb.rpc("is_workspace_admin", { _workspace_id: w, _user_id: uid })),
           ]);
-          const globalAdmin = !!adm.data || !!mst.data;
+          const globalAdmin = superadmin.data === true;
           const adminWs = new Set(wsIds.filter((_, i) => !!wsAdm[i]?.data));
           const startedByMe = new Set(
             ((eg ?? []) as { meeting_id: string; started_by: string }[])

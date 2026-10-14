@@ -1,4 +1,4 @@
-// Server functions de gestão de contas — somente super-admin (role 'admin').
+// Server functions de gestão de contas — somente Superadmin global explícito.
 //
 // Centraliza:
 //  - createAccount: cria usuário no auth + define plano + (opcional) adiciona a um espaço
@@ -8,27 +8,40 @@
 //  - deleteAccount: remove conta completamente
 
 import { createServerFn } from "@tanstack/react-start";
+import { requireSuperadmin } from "@/lib/admin/permissions.server";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 import { normalizeMemberProfile, type MemberProfile } from "@/lib/meetings/record-permission";
 
 type Plan = "essencial" | "pro" | "premium";
 
-async function ensureAdmin(ctx: { supabase: any; userId: string }) {
-  const { data, error } = await ctx.supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", ctx.userId)
-    .eq("role", "admin")
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error("forbidden");
-}
+/** Replaces direct privileged signup_invites INSERT after legacy retirement. */
+export const adminCreateSignupInvite = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { plan: Plan; tier: 1 | 2 | 3; email?: string | null; workspaceName?: string | null }) => {
+    if (!["essencial", "pro", "premium"].includes(input.plan) || ![1, 2, 3].includes(input.tier)) {
+      throw new Error("Plano ou nível inválido.");
+    }
+    if (input.email && !/^\S+@\S+\.\S+$/.test(input.email)) throw new Error("Email inválido.");
+    return input;
+  })
+  .handler(async ({ context, data }) => {
+    await requireSuperadmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: invite, error } = await supabaseAdmin.from("signup_invites").insert({
+      plan: data.plan, tier: data.tier, email: data.email?.trim() || null,
+      workspace_name_suggestion: data.workspaceName?.trim() || null,
+      created_by: context.userId,
+    }).select("id, token, expires_at").single();
+    if (error) throw new Error("Não foi possível criar o convite de cadastro.");
+    return { invite };
+  });
+
 
 export const adminListAccounts = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     const { data: users, error: usersErr } =
@@ -88,10 +101,11 @@ export const adminCreateAccount = createServerFn({ method: "POST" })
     if (!input.email || !/^\S+@\S+\.\S+$/.test(input.email)) throw new Error("Email inválido");
     if (!input.password || input.password.length < 6) throw new Error("Senha precisa ter ao menos 6 caracteres");
     if (!["essencial", "pro", "premium"].includes(input.plan)) throw new Error("Plano inválido");
+    if (input.workspaceRole === "owner") throw new Error("Crie a conta como membro e use Transferir propriedade depois.");
     return input;
   })
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
@@ -104,27 +118,23 @@ export const adminCreateAccount = createServerFn({ method: "POST" })
 
     const newId = created.user.id;
 
-    await supabaseAdmin
-      .from("profiles")
-      .update({
-        display_name: data.displayName || data.email.split("@")[0],
-        plan: data.plan,
-        group_id: data.groupId ?? null,
-      })
-      .eq("id", newId);
-
-    if (data.workspaceId) {
-      await supabaseAdmin
-        .from("workspace_members")
-        .upsert(
-          {
-            workspace_id: data.workspaceId,
-            user_id: newId,
-            role: data.workspaceRole ?? "member",
-            member_profile: normalizeMemberProfile(data.workspaceRole ?? "member", data.memberProfile),
-          },
-          { onConflict: "workspace_id,user_id" },
-        );
+    try {
+      const { error: profileError } = await supabaseAdmin.from("profiles").update({
+        display_name: data.displayName || data.email.split("@")[0], plan: data.plan, group_id: data.groupId ?? null,
+      }).eq("id", newId);
+      if (profileError) throw new Error(profileError.message);
+      if (data.workspaceId) {
+        const { error: membershipError } = await context.supabase.rpc("platform_assign_workspace_member", {
+          ws: data.workspaceId, target: newId, new_role: data.workspaceRole ?? "member",
+          new_profile: normalizeMemberProfile(data.workspaceRole ?? "member", data.memberProfile),
+        });
+        if (membershipError) throw new Error(membershipError.message);
+      }
+    } catch (error) {
+      // Account is newly created and never assigned owner; compensate failure.
+      const { error: cleanupError } = await supabaseAdmin.auth.admin.deleteUser(newId);
+      if (cleanupError) throw new Error("Falha ao configurar conta; revise a conta recém-criada no painel.");
+      throw error;
     }
 
     return { id: newId, email: data.email };
@@ -134,7 +144,7 @@ export const adminSetAccountGroup = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { userId: string; groupId: string | null }) => input)
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin
       .from("profiles")
@@ -147,7 +157,7 @@ export const adminSetAccountGroup = createServerFn({ method: "POST" })
 export const adminListGroups = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data, error } = await supabaseAdmin
       .from("account_groups")
@@ -164,7 +174,7 @@ export const adminCreateGroup = createServerFn({ method: "POST" })
     return input;
   })
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: row, error } = await supabaseAdmin
       .from("account_groups")
@@ -179,7 +189,7 @@ export const adminDeleteGroup = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { groupId: string }) => input)
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin.from("account_groups").delete().eq("id", data.groupId);
     if (error) throw new Error(error.message);
@@ -193,7 +203,7 @@ export const adminSetAccountPlan = createServerFn({ method: "POST" })
     return input;
   })
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin.from("profiles").update({ plan: data.plan }).eq("id", data.userId);
     if (error) throw new Error(error.message);
@@ -207,7 +217,7 @@ export const adminResetPassword = createServerFn({ method: "POST" })
     return input;
   })
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin.auth.admin.updateUserById(data.userId, { password: data.password });
     if (error) throw new Error(error.message);
@@ -223,19 +233,12 @@ export const adminAssignToWorkspace = createServerFn({ method: "POST" })
     memberProfile?: MemberProfile;
   }) => input)
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await supabaseAdmin
-      .from("workspace_members")
-      .upsert(
-        {
-          workspace_id: data.workspaceId,
-          user_id: data.userId,
-          role: data.role ?? "member",
-          member_profile: normalizeMemberProfile(data.role ?? "member", data.memberProfile),
-        },
-        { onConflict: "workspace_id,user_id" },
-      );
+    await requireSuperadmin(context);
+    if (data.role === "owner") throw new Error("Use Transferir propriedade para alterar o dono.");
+    const { error } = await context.supabase.rpc("platform_assign_workspace_member", {
+      ws: data.workspaceId, target: data.userId, new_role: data.role ?? "member",
+      new_profile: normalizeMemberProfile(data.role ?? "member", data.memberProfile),
+    });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -244,13 +247,10 @@ export const adminRemoveFromWorkspace = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { userId: string; workspaceId: string }) => input)
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await supabaseAdmin
-      .from("workspace_members")
-      .delete()
-      .eq("user_id", data.userId)
-      .eq("workspace_id", data.workspaceId);
+    await requireSuperadmin(context);
+    const { error } = await context.supabase.rpc("platform_remove_workspace_member", {
+      ws: data.workspaceId, target: data.userId,
+    });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -259,9 +259,15 @@ export const adminDeleteAccount = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { userId: string }) => input)
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     if (data.userId === (context as any).userId) throw new Error("Você não pode excluir sua própria conta");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: privileged, error: roleError } = await supabaseAdmin.from("user_roles")
+      .select("role").eq("user_id", data.userId).eq("role", "superadmin").maybeSingle();
+    if (roleError || privileged) throw new Error("A conta Superadmin é protegida; use recuperação administrativa.");
+    const { count: owned, error: ownerError } = await supabaseAdmin.from("workspaces")
+      .select("id", { count: "exact", head: true }).eq("owner_id", data.userId);
+    if (ownerError || owned == null || owned > 0) throw new Error("Transfira os espaços da conta antes de excluí-la.");
     const { error } = await supabaseAdmin.auth.admin.deleteUser(data.userId);
     if (error) throw new Error(error.message);
     return { ok: true };
@@ -270,7 +276,7 @@ export const adminDeleteAccount = createServerFn({ method: "POST" })
 export const adminListWorkspaces = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data, error } = await supabaseAdmin
       .from("workspaces")
@@ -288,14 +294,10 @@ export const adminSetMemberProfile = createServerFn({ method: "POST" })
     return input;
   })
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await (supabaseAdmin as any)
-      .from("workspace_members")
-      .update({ member_profile: data.memberProfile })
-      .eq("workspace_id", data.workspaceId)
-      .eq("user_id", data.userId)
-      .eq("role", "member");
+    await requireSuperadmin(context);
+    const { error } = await context.supabase.rpc("platform_set_member_profile", {
+      ws: data.workspaceId, target: data.userId, new_profile: data.memberProfile,
+    });
     if (error) throw new Error(error.message);
     return { ok: true };
   });

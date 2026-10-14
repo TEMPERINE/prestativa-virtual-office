@@ -803,6 +803,54 @@ export type Database = {
         }
         Relationships: []
       }
+      signup_invites: {
+        Row: {
+          id: string
+          token: string
+          email: string | null
+          plan: Database["public"]["Enums"]["account_plan"]
+          tier: number
+          workspace_name_suggestion: string | null
+          max_uses: number
+          uses: number
+          notes: string | null
+          created_by: string
+          expires_at: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          token?: string
+          email?: string | null
+          plan?: Database["public"]["Enums"]["account_plan"]
+          tier?: number
+          workspace_name_suggestion?: string | null
+          max_uses?: number
+          uses?: number
+          notes?: string | null
+          created_by: string
+          expires_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          token?: string
+          email?: string | null
+          plan?: Database["public"]["Enums"]["account_plan"]
+          tier?: number
+          workspace_name_suggestion?: string | null
+          max_uses?: number
+          uses?: number
+          notes?: string | null
+          created_by?: string
+          expires_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       sprite_skins: {
         Row: {
           created_at: string
@@ -1023,6 +1071,22 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      platform_is_superadmin: { Args: Record<PropertyKey, never>; Returns: boolean }
+      platform_bootstrap_superadmin: { Args: Record<PropertyKey, never>; Returns: Json }
+      platform_recover_superadmin: { Args: { replacement: string }; Returns: Json }
+      platform_acknowledge_superadmin_access: { Args: Record<PropertyKey, never>; Returns: Json }
+      platform_authorize_cutover: { Args: { application_commit: string }; Returns: undefined }
+      platform_set_global_role: { Args: { target: string; new_role: Database["public"]["Enums"]["app_role"]; enabled: boolean }; Returns: undefined }
+      platform_set_workspace_member: { Args: { ws: string; target: string; new_role: Database["public"]["Enums"]["workspace_role"] }; Returns: undefined }
+      platform_remove_workspace_member: { Args: { ws: string; target: string }; Returns: undefined }
+      platform_transfer_workspace_owner: { Args: { ws: string; new_owner: string; former_role?: Database["public"]["Enums"]["workspace_role"] }; Returns: undefined }
+      platform_set_member_profile: { Args: { ws: string; target: string; new_profile: string }; Returns: undefined }
+      platform_create_workspace: { Args: { ws_slug: string; ws_name: string; owner: string; ws_tier?: number }; Returns: string }
+      platform_create_workspace_invite: { Args: { ws: string; invite_email?: string; valid_for?: string }; Returns: string }
+      platform_revoke_workspace_invite: { Args: { invite_id: string }; Returns: undefined }
+      platform_assign_workspace_member: { Args: { ws: string; target: string; new_role: Database["public"]["Enums"]["workspace_role"]; new_profile?: string }; Returns: undefined }
+      platform_update_workspace: { Args: { ws: string; new_name?: string; new_tier?: number; new_owner?: string }; Returns: undefined }
+
       account_plan_allows_tier: {
         Args: {
           _plan: Database["public"]["Enums"]["account_plan"]
@@ -1127,7 +1191,7 @@ export type Database = {
     }
     Enums: {
       account_plan: "essencial" | "pro" | "premium"
-      app_role: "admin" | "supervisor" | "member" | "master"
+      app_role: "admin" | "supervisor" | "member" | "master" | "superadmin"
       workspace_role: "owner" | "admin" | "member"
     }
     CompositeTypes: {
@@ -1257,7 +1321,7 @@ export const Constants = {
   public: {
     Enums: {
       account_plan: ["essencial", "pro", "premium"],
-      app_role: ["admin", "supervisor", "member", "master"],
+      app_role: ["admin", "supervisor", "member", "master", "superadmin"],
       workspace_role: ["owner", "admin", "member"],
     },
   },

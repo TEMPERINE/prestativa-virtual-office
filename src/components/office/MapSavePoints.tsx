@@ -1,3 +1,5 @@
+import { usesSuperadminTransport } from "@/lib/admin/workspace-access";
+import { adminManageSavePoints } from "@/lib/admin/workspace-resources.functions";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Save, Loader2, Trash2, FolderOpen, X } from "lucide-react";
@@ -24,14 +26,22 @@ export function MapSavePoints({
     const ws = getCurrentWorkspaceId();
     if (!ws) return;
     setBusy(true);
-    const { data, error } = await supabase
-      .from("map_save_points")
-      .select("id, name, created_at, data")
-      .eq("workspace_id", ws)
-      .order("created_at", { ascending: false });
-    setBusy(false);
-    if (error) return toast.error("Erro ao listar Save Points: " + error.message);
-    setList((data ?? []) as SavePoint[]);
+    try {
+      const result = await usesSuperadminTransport()
+        ? { data: (await adminManageSavePoints({ data: { workspaceId: ws, action: "list" } })).rows, error: null }
+        : await supabase
+        .from("map_save_points")
+        .select("id, name, created_at, data")
+        .eq("workspace_id", ws)
+        .order("created_at", { ascending: false });
+      const { data, error } = result;
+      if (error) throw error;
+      setList((data ?? []) as SavePoint[]);
+    } catch {
+      toast.error("Erro ao listar Save Points. Tente novamente.");
+    } finally {
+      setBusy(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -47,18 +57,25 @@ export function MapSavePoints({
       defaultValue: new Date().toLocaleString("pt-BR"),
     });
     if (!name || !String(name).trim()) return;
-    const { data: u } = await supabase.auth.getUser();
     setBusy(true);
-    const { error } = await supabase.from("map_save_points").insert({
-      workspace_id: ws,
-      name: String(name).trim(),
-      data: JSON.parse(JSON.stringify(overrides)),
-      created_by: u.user?.id ?? null,
-    });
-    setBusy(false);
-    if (error) return toast.error("Erro ao salvar: " + error.message);
-    toast.success("Save Point criado");
-    refresh();
+    try {
+      const { data: u } = await supabase.auth.getUser();
+      const { error } = await usesSuperadminTransport()
+        ? (await adminManageSavePoints({ data: { workspaceId: ws, action: "create", name: String(name).trim(), map: overrides } }), { error: null })
+        : await supabase.from("map_save_points").insert({
+        workspace_id: ws,
+        name: String(name).trim(),
+        data: JSON.parse(JSON.stringify(overrides)),
+        created_by: u.user?.id ?? null,
+      });
+      if (error) throw error;
+      toast.success("Save Point criado");
+      await refresh();
+    } catch {
+      toast.error("Erro ao salvar Save Point. Tente novamente.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const load = async (sp: SavePoint) => {
@@ -77,9 +94,20 @@ export function MapSavePoints({
   const remove = async (sp: SavePoint) => {
     const ok = await appConfirm({ title: `Excluir "${sp.name}"?`, description: "Isso não pode ser desfeito.", destructive: true });
     if (!ok) return;
-    const { error } = await supabase.from("map_save_points").delete().eq("id", sp.id);
-    if (error) return toast.error("Erro ao excluir: " + error.message);
-    refresh();
+    const ws = getCurrentWorkspaceId();
+    if (!ws) return;
+    setBusy(true);
+    try {
+      const { error } = await usesSuperadminTransport()
+        ? (await adminManageSavePoints({ data: { workspaceId: ws, action: "delete", id: sp.id } }), { error: null })
+        : await supabase.from("map_save_points").delete().eq("id", sp.id).eq("workspace_id", ws);
+      if (error) throw error;
+      await refresh();
+    } catch {
+      toast.error("Erro ao excluir Save Point. Tente novamente.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (

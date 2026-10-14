@@ -4,7 +4,7 @@
 
 **Goal:** Introduzir Superadmin explícito e gestão de memberships por servidor, sem perda de acesso nem promoção automática de roles legadas.
 
-**Architecture:** Infraestrutura aditiva precede atribuição privada service-only e rollout dos guards/UI. Hardening e retirada de overrides acontecem numa transação posterior à confirmação do novo caminho. A recuperação substitui o singleton independentemente de membership local.
+**Architecture:** Infraestrutura aditiva precede atribuição privada service-only e rollout dos guards/UI. Hardening, revisão de helpers e retirada final de overrides têm etapas/transações próprias posteriores à confirmação do novo caminho. A recuperação substitui o singleton independentemente de membership local.
 
 **Tech Stack:** PostgreSQL/Supabase RLS e RPC, TanStack Start, React, TypeScript, Vitest; PostgreSQL 16 em Docker para testes isolados.
 
@@ -14,7 +14,7 @@
 
 - Não aplicar em produção, fazer merge/push ou publicar sem autorização específica.
 - Não versionar identidades reais, credenciais, backups privados ou tokens.
-- Migrations propostas ficam fora de `supabase/migrations` até revisão/aprovação.
+- Enum/foundation executáveis ficam em `supabase/migrations`; bootstrap/hardening/helpers/corte final ficam em `supabase/staged-migrations`, fora da descoberta automática até autorização específica.
 - Confirmar catálogo/owners/grants reais; counts informados não comprovam o catálogo.
 - Não retirar overrides antes de confirmar Superadmin funcional em todos os fluxos.
 - Um Superadmin; recuperação service-only; nenhuma promoção automática admin/master.
@@ -33,79 +33,53 @@
 
 ---
 
-## Arquivos e estado da preparação
+## Arquivos e estado da implementação
 
-Preparados para revisão: `docs/security/proposals/superadmin/{00-preflight-readonly,01-role,02-foundation,03-administration-rpcs,04-membership-cutover,05-legacy-overrides-cutover,06-cutover-transaction}.sql`,
-`scripts/test_superadmin_proposals.py`, `supabase/tests/superadmin/{fixtures,foundation,authorization}.sql`.
-Nenhum foi colocado no fluxo ativo de migrations. O aplicativo abaixo ainda precisa ser implementado/homologado.
+Manifesto final: [superadmin-rollout.md](../../security/superadmin-rollout.md), com seis nomes finais, SQL completo por arquivo, ordem/gates, funções/policies e rollback. SQLs históricos 01–06 e draft antigo não devem ser aplicados junto do pacote final.
 
-### Task 1: Conferir catálogo real e aprovar SQL
+### Task 1: Inventário e preparação executável
 
-**Files:** SQL 00–06 acima; `docs/security/superadmin-permissions-design.md`.
+- [x] Receber inventário reportado: interseção admin/master única; 1 workspace, 17 members, 1 owner canônico, 0 admins locais/convites e nenhuma inconsistência. Normalização não necessária.
+- [x] Preparar enum/foundation/RPCs e quatro etapas gated executáveis, sem atribuição no fluxo automático.
+- [x] Preservar labels legadas, singleton e recuperação service-only, sem IDs pessoais versionados.
+- [ ] Antes da execução real, repetir metadados/owners/grants e confirmar Auth.deleted_at/banned_until, RLS/bypass do owner postgres. O JSON completo do catálogo não foi entregue nesta conversa.
 
-**Interfaces:** Consome catálogo real somente leitura. Produz SQL versionado revisado, compatível com o owner confiável e as policies realmente existentes.
+### Task 2: RPCs, hardening e autorização
 
-- [ ] Executar 00 manualmente em sessão autorizada e receber somente metadados/contagens; confirmar auth.users.deleted_at/banned_until e bypass RLS do owner postgres.
-- [ ] Confrontar policies/RPCs/grants reais com o manifesto. Reconciliar paths adicionais e privilégios por coluna; não fazer substituição automática de texto em funções/policies.
-- [ ] Inventariar owners não canônicos, owners sem membership, convites privilegiados e legitimidade de admins/owners/estratégicos preexistentes à correção da autoentrada. Preparar correção individual privada sem IDs no Git.
-- [ ] Rodar `PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_superadmin_proposals.py`; exigir PASS, incluindo duas transações concorrentes e TRUNCATE.
-- [ ] Revisar o diff completo e obter autorização específica antes de converter/aplicar qualquer proposta.
+- [x] Bootstrap exclusivo da interseção ativa 1/1/1; erro aborta.
+- [x] Administração global e local por ator auth.uid; locals só membros comuns próprios; promoção/transferência reservada ao Superadmin.
+- [x] Operações compostas role+perfil, metadados+transferência, criação workspace+owner atômicas.
+- [x] INSERT cliente só próprio owner canônico; UPDATE administrativo cliente fechado; saída própria não canônica preservada.
+- [x] Convites member-only em CHECK/RPC/aceite; validação de emissor e locks ordenados.
+- [x] Helpers públicos escopados e grants de EXECUTE revisados; helpers privados isolados; RLS usa wrappers públicos callable.
+- [x] Perfil/gravação em nova hierarquia, mantendo capacidades membership-bound aprovadas.
+- [x] Corte final separado, com flags e confirmação/atestação; SQL desconhecido aborta.
+- [ ] Testar endpoints REST/JWT/Auth de Supabase em homologação autorizada; nenhum acesso real nesta tarefa.
 
-### Task 2: Instalar infraestrutura aditiva e validar atribuição
+### Task 3: Guards, handlers e UI
 
-**Files:** SQL 01–03; `supabase/tests/superadmin/foundation.sql`.
+- [x] Guard central consulta platform_is_superadmin por requisição antes do client service-role; admin/master negados.
+- [x] Contas/espaços/skins/AI e painéis reconhecem Superadmin; RPCs de membership/perfil/owner e exclusão protegida.
+- [x] Transferir propriedade explícito com confirmação; retirada do caminho owner por convite/criação de conta.
+- [x] Handlers globais mapas/save points/props + emissão signup invite; operações locais mantidas; falhas de transporte tratadas.
+- [x] Gates de gravação/UI/tipos adaptados; mecânica RTC/RoomManager/Presence/Egress/Desktop preservada.
+- [ ] Comparar tipos com geração oficial e homologar painéis/overlays na composição real, inclusive sem membership nem labels antigas.
 
-**Interfaces:** Produz `platform_is_superadmin()`, bootstrap/recovery service-only e RPCs administrativas conforme tabela de contratos da spec.
+### Task 4: Verificação isolada e revisão
 
-- [ ] Em homologação Supabase, executar 01 e commit separado, depois 02; confirmar owner/search_path e EXECUTE real via catálogo.
-- [ ] Testar REST autenticado/anon: bootstrap/recovery/atestação negados ao cliente; manutenção GUC não concede privilégios.
-- [ ] Invocar bootstrap por canal privado service-only. Conferir retorno sem identidade, role real do titular, counts 1/1/1 e manutenção de admin/master.
-- [ ] Instalar 03; testar Superadmin sem membership e bloqueio de RPCs locais antes do hardening.
-- [ ] Ensaiar recuperação em homologação: alvo ativo, singleton, proteção DELETE/ban/TRUNCATE, rollback por alvo inválido e bloqueio concorrente de conta.
-- [ ] Não retirar acessos legados nem promover outros usuários nesta etapa.
+- [x] RED→GREEN para legado guard, enumeração de helpers, RPCs compostas, constraints, RLS positivo e erros de transporte.
+- [x] PostgreSQL 16 descartável: scripts finais/idempotência, autorizações, convites, gates/rollback e duas transações concorrentes.
+- [x] Suite Vitest completa, typecheck e build.
+- [x] Revisão independente somente leitura; corrigidos dois achados de RLS/EXECUTE e rejeições do transporte.
+- [ ] Homologação Supabase/Office real e ensaio de recuperação pelo operador.
 
-### Task 3: Migrar guards, handlers e UI
+### Task 5: Aplicação por etapas autorizadas
 
-**Files:** criar `src/lib/admin/permissions.server.ts`; modificar `src/lib/admin/{accounts,workspaces,sprites,ai-sprite}.functions.ts`,
-`src/routes/_authenticated/admin.{index,contas,espacos,personagens}.tsx`, `src/routes/_authenticated/workspaces.{index,new}.tsx`,
-`src/lib/workspace/create.ts`, `src/components/office/{OfficeScene,MapEditor,MapSavePoints}.tsx`, `src/lib/map-overrides.ts`,
-`src/lib/meetings/{recording.functions,record-permission}.ts`, `src/components/meetings/MeetingsPanel.tsx`, `src/integrations/supabase/types.ts`.
+- [ ] Apresentar manifesto/diff/testes; obter autorização explícita de aplicação.
+- [ ] Backup privado, confirmar commits/env e aplicar 1→2→3 no canal autorizado.
+- [ ] Rollout autorizado de app; homologar e confirmar titular/atestar SHA.
+- [ ] Aplicar 4→5 somente após Gate A; homologar caminhos locais/globais e convite.
+- [ ] Aplicar 6 somente após Gate B e autorização; repetir inventário.
+- [ ] Rollback/recuperação conforme manifesto; nunca reabrir policy insegura.
 
-**Interfaces:** `requireSuperadmin(context: {supabase: SupabaseClient<Database>; userId: string}): Promise<void>` verifica role do ator via client autenticado; usa `platform_is_superadmin()` e falha fechado. Consome RPCs da spec. Operações globais de mapa/convites têm handlers autenticados com esse guard; operações locais existentes permanecem escopadas.
-
-- [ ] Escrever testes de guard/handlers: Superadmin reconhecido, labels admin/master isoladas negadas, role falsa/ator de payload ignorados, falha do banco negada e service_role não usado antes da autorização.
-- [ ] Rodar testes e confirmar falha nos caminhos atuais que só reconhecem admin.
-- [ ] Implementar guard central, substituir quatro ensureAdmin e migrar membership/profile/transferência/criação às RPCs; nunca invocar RPC com client service-role sem identidade autenticada de ator.
-- [ ] Bloquear nova atribuição de admin/master enquanto overrides legados existirem; proteger alvo Superadmin em UI e servidor, sem botão de remoção/rebaixamento global.
-- [ ] Implementar emissão server-side de signup invites e acesso/edição global de mapas/save points antes de retirar policies correspondentes. Reutilizar contratos de persistência/versionamento existentes; não criar fonte de verdade paralela.
-- [ ] Atualizar gates visuais e tipos gerados. Separar capacidade de criação própria de administração global; Superadmin recuperado sem admin/master também funciona.
-- [ ] Ajustar só autorização global nas gravações: Superadmin substitui admin/master; participantes/destinatários/local admins e Egress/R2 mantêm regras próprias. Adicionar superadmin ao recording capability membership-bound.
-- [ ] Rodar testes pertinentes, suite completa, typecheck e build conforme ferramentas do projeto. Homologar painéis e overlays na composição real, inclusive Superadmin sem membership.
-- [ ] Registrar commit/resultado de cada ação administrativa homologada; ainda não executar corte.
-
-### Task 4: Homologar hardening e retirada atômica
-
-**Files:** SQL 04–06; `supabase/tests/superadmin/authorization.sql`.
-
-**Interfaces:** Consome role explícita/handlers do Task 3. Produz membership_hardened=true e retired=true somente após gates verificados e transação completa.
-
-- [ ] Em homologação, exigir falha de 04 por policy desconhecida, convite privilegiado pendente e owner não canônico; não apagar dados para fazer o teste passar.
-- [ ] Confirmar sessão via platform_acknowledge_superadmin_access; atestar commit homologado via platform_authorize_cutover em canal service-only.
-- [ ] Rodar 04+05 numa transação. Provocar falha em 05 e comprovar rollback de toda a etapa, inclusive ativação de RPCs locais.
-- [ ] Exercitar os oito casos solicitados: autoentrada, autopromoção, owner_id alheio, criação válida, convite válido, inválido/expirado/revogado, administração server-side e contorno cliente negado.
-- [ ] Testar local owner/admin só membros comuns do próprio workspace; Superadmin promove/rebaixa/transfere sem membership, protegendo integridade canônica e plano.
-- [ ] Repetir inventário de overrides e testes REST com JWT real após corte. Labels legadas não dão autoridade global. Supervisor só capacidades locais já permitidas.
-- [ ] Ensaiar recuperação após corte e concorrência entre recuperação e readiness; substituto sem labels legadas mantém painel completo.
-
-### Task 5: Rollout autorizado e rollback ensaiado
-
-**Files:** spec, SQL aprovado e registro privado de homologação/backup.
-
-**Interfaces:** Consome commits SQL/app aprovados e autorização explícita. Produz rollout rastreável, sem publicação implícita pelo push.
-
-- [ ] Ensaiar rollback: pré-corte mantém legado; erro no corte reverte SQL inteiro; pós-corte retorna a aplicativo compatível com Superadmin e preserva hardening.
-- [ ] Conferir caminho de recuperação e backup privado. Não remover enum/singleton nem reabrir self-join para rollback.
-- [ ] Apresentar diff final, SQL completo, catálogo real, testes/limitações e commits antes de solicitar autorização de produção.
-- [ ] Executar apenas etapas expressamente autorizadas; confirmar main/preview/produção, commits/env e permissões efetivas após cada uma.
-
-Esta tarefa entrega preparação/revisão, não inicia os Tasks de aplicação ou publicação.
+Esta tarefa encerra em implementação local e apresentação; nenhuma etapa de aplicação/publicação é autorizada pelo plano.

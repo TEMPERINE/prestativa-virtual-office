@@ -72,10 +72,20 @@ RESET ROLE;
 INSERT INTO public.workspace_invites(workspace_id,email,token,role,invited_by,expires_at) VALUES
  ('10000000-0000-4000-8000-000000000001','invitee@example.test','valid','member','00000000-0000-4000-8000-000000000002',now()+interval '1 day'),
  ('10000000-0000-4000-8000-000000000001',NULL,'expired','member','00000000-0000-4000-8000-000000000002',now()-interval '1 day'),
- ('10000000-0000-4000-8000-000000000001',NULL,'privileged','admin','00000000-0000-4000-8000-000000000002',now()+interval '1 day'),
  ('10000000-0000-4000-8000-000000000001','owner@example.test','wrong-account','member','00000000-0000-4000-8000-000000000002',now()+interval '1 day'),
  ('10000000-0000-4000-8000-000000000001',NULL,'revoked','member','00000000-0000-4000-8000-000000000002',now()+interval '1 day');
 DELETE FROM public.workspace_invites WHERE token='revoked';
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='workspace_invites_member_only') THEN
+    PERFORM public._test_rejected($test$INSERT INTO public.workspace_invites(workspace_id,email,role,invited_by) VALUES('10000000-0000-4000-8000-000000000001',NULL,'owner','00000000-0000-4000-8000-000000000002')$test$,'23514','DB CHECK prevents privileged invitation even from trusted SQL');
+    -- Model a corrupt historical row, never a production maintenance action.
+    ALTER TABLE public.workspace_invites DROP CONSTRAINT workspace_invites_member_only;
+    INSERT INTO public.workspace_invites(workspace_id,email,token,role,invited_by) VALUES('10000000-0000-4000-8000-000000000001',NULL,'privileged','admin','00000000-0000-4000-8000-000000000002');
+    ALTER TABLE public.workspace_invites ADD CONSTRAINT workspace_invites_member_only CHECK(role='member') NOT VALID;
+  ELSE
+    INSERT INTO public.workspace_invites(workspace_id,email,token,role,invited_by) VALUES('10000000-0000-4000-8000-000000000001',NULL,'privileged','admin','00000000-0000-4000-8000-000000000002');
+  END IF;
+END $$;
 SET ROLE authenticated;
 SET request.jwt.claim.sub='00000000-0000-4000-8000-000000000005';
 SELECT public._test_rejected($$SELECT public.workspace_accept_invite('missing')$$,'P0001','invalid invite fails');

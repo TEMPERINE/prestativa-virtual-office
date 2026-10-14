@@ -6,7 +6,7 @@ export type WorkspaceRole = "owner" | "admin" | "member";
 export type MemberProfile = "operational" | "strategic";
 
 /** Papéis globais que já existem no sistema e autorizam gravação. */
-const RECORDING_GLOBAL_ROLES = new Set(["admin", "master", "supervisor"]);
+const RECORDING_GLOBAL_ROLES = new Set(["admin", "master", "supervisor", "superadmin"]);
 
 export function normalizeMemberProfile(role: WorkspaceRole, profile?: string | null): MemberProfile {
   if (role !== "member") return "operational"; // Admin/Dono não usam perfil

@@ -1,3 +1,4 @@
+import { usesSuperadminTransport } from "@/lib/admin/workspace-access";
 // Tile-based overrides painted in the Map Editor.
 // Persisted to localStorage so the OfficeScene picks them up automatically.
 
@@ -141,6 +142,11 @@ async function fetchCanonicalRow(): Promise<CanonicalMapRow> {
   const ws = await getWs();
   if (!ws) return null;
   const { supabase } = await import("@/integrations/supabase/client");
+  if (await usesSuperadminTransport()) {
+    const { adminReadWorkspaceMap } = await import("@/lib/admin/workspace-resources.functions");
+    const row = await adminReadWorkspaceMap({ data: { workspaceId: ws } });
+    return row ? { data: row.data, version: Number(row.version) } : null;
+  }
   const { data, error } = await supabase
     .from("map_overrides")
     .select("data, version")
@@ -222,7 +228,10 @@ export async function pushOverridesToCloud(
     const normalized = normalizeMapOverrides(o) ?? emptyOverrides();
     const { supabase } = await import("@/integrations/supabase/client");
     const { data: userData } = await supabase.auth.getUser();
-    const { data, error } = await supabase
+    const privileged = await usesSuperadminTransport();
+    const result = privileged
+      ? { data: await (await import("@/lib/admin/workspace-resources.functions")).adminWriteWorkspaceMap({ data: { workspaceId: ws, map: normalized } }), error: null }
+      : await supabase
       .from("map_overrides")
       .upsert(
         {
@@ -235,7 +244,8 @@ export async function pushOverridesToCloud(
       )
       .select("data, version")
       .single();
-    if (error) return { ok: false, error: error.message };
+    const { data, error } = result;
+    if (error || !data) return { ok: false, error: error?.message ?? "Mapa não confirmado." };
     const version = Number(data.version);
     getMapSync().applyConfirmed(data.data, version);
     if (mapChannel) {

@@ -3,20 +3,11 @@
 // consistência de personagem entre frames.
 
 import { createServerFn } from "@tanstack/react-start";
+import { requireSuperadmin } from "@/lib/admin/permissions.server";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 type Facing = "down" | "up" | "left" | "right";
 
-async function ensureAdmin(ctx: { supabase: any; userId: string }) {
-  const { data, error } = await ctx.supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", ctx.userId)
-    .eq("role", "admin")
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error("forbidden");
-}
 
 const POSE_BY_FACING: Record<Facing, string> = {
   down: "facing the camera (front view), walking toward the viewer",
@@ -56,7 +47,7 @@ export const adminGenerateWalkFrame = createServerFn({ method: "POST" })
     },
   )
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const key = process.env.LOVABLE_API_KEY;
     if (!key) throw new Error("Missing LOVABLE_API_KEY");
 

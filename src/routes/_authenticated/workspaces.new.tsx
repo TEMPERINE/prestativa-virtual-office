@@ -88,7 +88,7 @@ function NewWorkspacePage() {
         .from("user_roles")
         .select("role")
         .eq("user_id", u.user.id);
-      const isAdmin = (roles ?? []).some((r: any) => r.role === "admin");
+      const isAdmin = (roles ?? []).some((r: any) => r.role === "superadmin" || r.role === "admin");
       setAllowed(isAdmin);
       try {
         const last = localStorage.getItem("lastWorkspaceId");

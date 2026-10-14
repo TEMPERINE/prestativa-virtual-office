@@ -22,11 +22,10 @@ export const getRecordingUrl = createServerFn({ method: "POST" })
     if (!meeting?.recording_path) return { ok: false as const, code: "NO_RECORDING" };
 
     const sb = context.supabase;
-    const [part, wsAdmin, admin, master, share, member] = await Promise.all([
+    const [part, wsAdmin, superadmin, share, member] = await Promise.all([
       sb.rpc("is_meeting_participant", { _meeting_id: meeting.id, _user_id: context.userId }),
       sb.rpc("is_workspace_admin", { _workspace_id: meeting.workspace_id, _user_id: context.userId }),
-      sb.rpc("has_role", { _user_id: context.userId, _role: "admin" }),
-      sb.rpc("has_role", { _user_id: context.userId, _role: "master" }),
+      sb.rpc("platform_is_superadmin"),
       // RLS: só retorna linha se recipient_id = auth.uid().
       sb.from("meeting_recording_shares").select("meeting_id")
         .eq("meeting_id", meeting.id).eq("recipient_id", context.userId).limit(1),
@@ -38,7 +37,7 @@ export const getRecordingUrl = createServerFn({ method: "POST" })
       isParticipant: !!part.data,
       isShareRecipient: (share.data?.length ?? 0) > 0,
       isWorkspaceAdmin: !!wsAdmin.data,
-      isGlobalAdmin: !!admin.data || !!master.data,
+      isGlobalAdmin: superadmin.data === true,
     })) {
       return { ok: false as const, code: "FORBIDDEN" };
     }
@@ -80,13 +79,12 @@ export const deleteMeeting = createServerFn({ method: "POST" })
     const egress = (egressRows ?? []) as { id: string; file_path: string | null; status: string; started_by: string }[];
 
     const sb = context.supabase;
-    const [wsAdmin, admin, master] = await Promise.all([
+    const [wsAdmin, superadmin] = await Promise.all([
       sb.rpc("is_workspace_admin", { _workspace_id: meeting.workspace_id, _user_id: context.userId }),
-      sb.rpc("has_role", { _user_id: context.userId, _role: "admin" }),
-      sb.rpc("has_role", { _user_id: context.userId, _role: "master" }),
+      sb.rpc("platform_is_superadmin"),
     ]);
     const isRecorder = meeting.recorded_by === context.userId || egress.some((e) => e.started_by === context.userId);
-    if (!isRecorder && !wsAdmin.data && !admin.data && !master.data) {
+    if (!isRecorder && !wsAdmin.data && superadmin.data !== true) {
       return { ok: false as const, code: "FORBIDDEN" };
     }
     if (egress.some((e) => ["starting", "active", "ending"].includes(e.status))) {

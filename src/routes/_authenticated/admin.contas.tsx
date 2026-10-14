@@ -1,3 +1,4 @@
+import { adminTransferWorkspaceOwnership } from "@/lib/admin/workspaces.functions";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
@@ -56,6 +57,7 @@ function AdminContasPage() {
   const setPlanFn = useServerFn(adminSetAccountPlan);
   const resetPwFn = useServerFn(adminResetPassword);
   const deleteFn = useServerFn(adminDeleteAccount);
+  const transferFn = useServerFn(adminTransferWorkspaceOwnership);
   const assignFn = useServerFn(adminAssignToWorkspace);
   const setProfileFn = useServerFn(adminSetMemberProfile);
   const unassignFn = useServerFn(adminRemoveFromWorkspace);
@@ -88,7 +90,7 @@ function AdminContasPage() {
       .from("user_roles")
       .select("role")
       .eq("user_id", u.user.id)
-      .eq("role", "admin")
+      .eq("role", "superadmin")
       .maybeSingle();
     return !!data;
   };
@@ -197,7 +199,12 @@ function AdminContasPage() {
   const assign = async (userId: string, workspaceId: string, role: "owner" | "admin" | "member", memberProfile?: "operational" | "strategic") => {
     if (!workspaceId) return;
     try {
-      await assignFn({ data: { userId, workspaceId, role, memberProfile: role === "member" ? memberProfile : undefined } });
+      if (role === "owner") {
+        if (!(await appConfirm({ title: "Transferir propriedade?", description: "Esta conta será o novo dono. O dono anterior continuará como membro.", confirmLabel: "Transferir" }))) return;
+        await transferFn({ data: { workspaceId, newOwnerId: userId } });
+      } else {
+        await assignFn({ data: { userId, workspaceId, role, memberProfile: role === "member" ? memberProfile : undefined } });
+      }
       toast.success("Acesso ao espaço concedido.");
       load();
     } catch (e: any) { toast.error(e?.message ?? "Erro."); }
@@ -330,7 +337,6 @@ function AdminContasPage() {
               options={[
                 { value: "member", label: "Membro" },
                 { value: "admin", label: "Admin" },
-                { value: "owner", label: "Dono" },
               ]} />
             {wsRole === "member" && (
               <div>
@@ -379,8 +385,8 @@ function AdminContasPage() {
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-medium flex items-center gap-2 flex-wrap">
                               <span>{a.display_name ?? a.email}</span>
-                              {a.roles?.includes("admin") && (
-                                <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/15 text-primary">Admin</span>
+                              {(a.roles?.includes("superadmin") || a.roles?.includes("admin")) && (
+                                <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/15 text-primary">{a.roles?.includes("superadmin") ? "Superadmin" : "Admin (legado)"}</span>
                               )}
                             </div>
                             <div className="text-xs text-muted-foreground truncate">
@@ -408,7 +414,7 @@ function AdminContasPage() {
                             </select>
                             <button onClick={() => resetPw(a.id)} title="Redefinir senha"
                               className="p-2 rounded-lg bg-muted hover:bg-muted/70"><KeyRound size={14} /></button>
-                            <button onClick={() => removeAccount(a)} title="Excluir conta"
+                            <button disabled={a.roles?.includes("superadmin")} onClick={() => removeAccount(a)} title="Excluir conta"
                               className="p-2 rounded-lg bg-muted hover:bg-red-500/10 hover:text-red-500"><Trash2 size={14} /></button>
                           </div>
                         </div>
@@ -510,7 +516,7 @@ function AssignControl({ workspaces, onAssign }: {
             className="rounded-lg border bg-background px-2 py-1 text-xs">
             <option value="member">Membro</option>
             <option value="admin">Admin</option>
-            <option value="owner">Dono</option>
+            <option value="owner">Transferir propriedade</option>
           </select>
           {role === "member" && (
             <select value={mp} onChange={(e) => setMp(e.target.value as any)} aria-label="Perfil do membro"

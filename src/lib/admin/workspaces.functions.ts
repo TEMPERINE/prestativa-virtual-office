@@ -2,18 +2,9 @@
 // Permite criar, renomear, mudar tier, excluir e listar com metadados.
 
 import { createServerFn } from "@tanstack/react-start";
+import { requireSuperadmin } from "@/lib/admin/permissions.server";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-async function ensureAdmin(ctx: { supabase: any; userId: string }) {
-  const { data, error } = await ctx.supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", ctx.userId)
-    .eq("role", "admin")
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error("forbidden");
-}
 
 function slugify(s: string): string {
   return (
@@ -30,7 +21,7 @@ function slugify(s: string): string {
 export const adminListWorkspacesFull = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     const { data: ws, error } = await supabaseAdmin
@@ -68,43 +59,25 @@ export const adminCreateWorkspace = createServerFn({ method: "POST" })
     return input;
   })
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    const ownerId = data.ownerId ?? (context as any).userId;
+    await requireSuperadmin(context);
+    const ownerId = data.ownerId ?? context.userId;
     const slug = `${slugify(data.name)}-${Math.random().toString(36).slice(2, 6)}`;
-
-    const { data: ws, error } = await supabaseAdmin
-      .from("workspaces")
-      .insert({ name: data.name.trim(), slug, owner_id: ownerId, tier: data.tier } as any)
-      .select("id")
-      .single();
-    if (error || !ws) throw new Error(error?.message ?? "Falha ao criar");
-
-    await supabaseAdmin
-      .from("workspace_members")
-      .upsert({ workspace_id: ws.id, user_id: ownerId, role: "owner" }, { onConflict: "workspace_id,user_id" });
-
-    return { id: ws.id };
+    const { data: id, error } = await context.supabase.rpc("platform_create_workspace", {
+      ws_slug: slug, ws_name: data.name.trim(), owner: ownerId, ws_tier: data.tier,
+    });
+    if (error || !id) throw new Error(error?.message ?? "Falha ao criar");
+    return { id };
   });
 
 export const adminUpdateWorkspace = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { id: string; name?: string; tier?: 1 | 2 | 3; ownerId?: string }) => input)
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const patch: any = {};
-    if (data.name !== undefined) patch.name = data.name.trim();
-    if (data.tier !== undefined) patch.tier = data.tier;
-    if (data.ownerId !== undefined) patch.owner_id = data.ownerId;
-    const { error } = await supabaseAdmin.from("workspaces").update(patch).eq("id", data.id);
+    await requireSuperadmin(context);
+    const { error } = await context.supabase.rpc("platform_update_workspace", {
+      ws: data.id, new_name: data.name, new_tier: data.tier, new_owner: data.ownerId,
+    });
     if (error) throw new Error(error.message);
-    if (data.ownerId) {
-      await supabaseAdmin
-        .from("workspace_members")
-        .upsert({ workspace_id: data.id, user_id: data.ownerId, role: "owner" }, { onConflict: "workspace_id,user_id" });
-    }
     return { ok: true };
   });
 
@@ -112,9 +85,22 @@ export const adminDeleteWorkspace = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { id: string }) => input)
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin.from("workspaces").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** Explicit ownership transfer; membership + owner_id change in one DB transaction. */
+export const adminTransferWorkspaceOwnership = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { workspaceId: string; newOwnerId: string }) => input)
+  .handler(async ({ context, data }) => {
+    await requireSuperadmin(context);
+    const { error } = await context.supabase.rpc("platform_transfer_workspace_owner", {
+      ws: data.workspaceId, new_owner: data.newOwnerId, former_role: "member",
+    });
     if (error) throw new Error(error.message);
     return { ok: true };
   });

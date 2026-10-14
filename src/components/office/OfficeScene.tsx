@@ -413,7 +413,7 @@ export function OfficeScene({
     (async () => {
       const { data } = await supabase
         .from("user_roles").select("role")
-        .eq("user_id", me.id).eq("role", "admin").maybeSingle();
+        .eq("user_id", me.id).eq("role", "superadmin").maybeSingle();
       if (!cancelled) setIsMasterAdmin(!!data);
     })();
     return () => { cancelled = true; };

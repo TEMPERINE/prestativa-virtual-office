@@ -1,10 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { isSuperadminRole } from "@/lib/admin/permissions";
 import { canRecordMeeting, normalizeMemberProfile } from "../record-permission";
 
 const read = (f: string) => readFileSync(f, "utf8");
 
 describe("canRecordMeeting", () => {
+  it("Superadmin grava quando membro, sem ligar mídia fora do workspace", () => {
+    expect(canRecordMeeting({ workspaceRole: "member", globalRoles: ["superadmin"] })).toBe(true);
+    expect(canRecordMeeting({ workspaceRole: null, globalRoles: ["superadmin"] })).toBe(false);
+  });
   it("novo Membro nasce Operacional", () => {
     expect(normalizeMemberProfile("member", undefined)).toBe("operational");
     expect(normalizeMemberProfile("member", null)).toBe("operational");
@@ -51,13 +56,13 @@ describe("integração da regra", () => {
   it("troca de perfil não altera o papel no espaço", () => {
     const src = read("src/lib/admin/accounts.functions.ts");
     const fn = src.slice(src.indexOf("adminSetMemberProfile"));
-    expect(fn).toContain(".update({ member_profile: data.memberProfile })");
+    expect(fn).toContain('rpc("platform_set_member_profile"');
     expect(fn).not.toMatch(/update\(\{[^}]*role:/);
   });
-  it("Estratégico não ganha acesso administrativo (admin continua exigindo papel admin)", () => {
-    const src = read("src/lib/admin/accounts.functions.ts");
-    expect(src).toContain('.eq("role", "admin")');
-    expect(src).not.toMatch(/ensureAdmin[\s\S]{0,300}strategic/);
+  it("Perfil estratégico e labels legadas não são Superadmin", () => {
+    expect(isSuperadminRole(["member", "strategic"])).toBe(false);
+    expect(isSuperadminRole(["admin", "master"])).toBe(false);
+    expect(isSuperadminRole(["superadmin"])).toBe(true);
   });
   it("credenciais continuam só no servidor", () => {
     for (const f of ["src/lib/meetings/useCanRecordMeeting.ts", "src/lib/meetings/record-permission.ts"]) {

@@ -54,7 +54,7 @@ def additional_fixtures():
         *[policy(ws, name) for name in [
             "Members read map", "Workspace admin upserts map", "Workspace admin updates map",
             "Workspace admin deletes map", "Admin inserts custom_props",
-            "Admin updates custom_props", "Admin deletes custom_props"]],
+            "Admin updates custom_props", "Admin deletes custom_props", "Members read custom_props"]],
         global_admin[global_admin.index("-- map_overrides"):],
         source("20260609085333"),
         source("20260616132723").split("-- Seed:")[0],
@@ -70,6 +70,9 @@ def additional_fixtures():
 
 def run():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--constraints-red", action="store_true", help="Prove structural guard regressions against approved older proposals")
+    parser.add_argument("--migrations", action="store_true", help="Exercise executable active+staged migrations, including idempotence")
+    parser.add_argument("--helpers-red", action="store_true", help="Run helper privacy regression against old functions")
     parser.add_argument("--baseline", action="store_true", help="Confirm absent Superadmin on original schema")
     args = parser.parse_args()
     name = f"prestativa-superadmin-test-{os.getpid()}-{time.time_ns()}"
@@ -183,7 +186,14 @@ def run():
                 gate.wait()
         sql("SELECT public._test_assert(true,'cutover readiness lock serializes recovery until transaction ends');")
 
+    def staged(suffix):
+        paths=list((ROOT / "supabase/staged-migrations").glob("*"+suffix+".sql"))
+        if len(paths)!=1: raise RuntimeError("Expected one staged migration: "+suffix)
+        return paths[0].read_text()
+
     def cutover_sql():
+        if args.migrations:
+            return staged("workspace_membership_hardening")
         return "BEGIN;\n" + (PROPOSALS / "04-membership-cutover.sql").read_text() + \
             (PROPOSALS / "05-legacy-overrides-cutover.sql").read_text() + "\nCOMMIT;"
 
@@ -213,6 +223,8 @@ def run():
         sql("INSERT INTO public.workspace_invites(workspace_id,email,token,role,invited_by) VALUES('10000000-0000-4000-8000-000000000001',NULL,'pending-test','admin','00000000-0000-4000-8000-000000000002');")
         assert_cutover_abort("pending privileged invites", "pending privileged invite aborts cutover")
         sql("DELETE FROM public.workspace_invites WHERE token='pending-test';")
+        if args.migrations:
+            return  # Final retirement has its own independent atomicity checks.
         sql('CREATE POLICY "test residual global override" ON public.custom_props FOR SELECT TO authenticated USING (public.has_role(auth.uid(),\'admin\'));')
         assert_cutover_abort("unreviewed legacy global policy remains", "failure in stage 05 rolls back stage 04 policies grants and activation")
         sql('DROP POLICY "test residual global override" ON public.custom_props;')
@@ -234,12 +246,45 @@ def run():
         sql(additional_fixtures())
         sql((TESTS / "fixtures.sql").read_text())
         if not args.baseline:
-            for name_part in ["01-role.sql", "02-foundation.sql", "03-administration-rpcs.sql"]:
-                sql((PROPOSALS / name_part).read_text())
+            if args.migrations:
+                for suffix in ["superadmin_role","superadmin_foundation_and_rpcs"]:
+                    path=next((ROOT / "supabase/migrations").glob("*"+suffix+".sql"))
+                    sql(path.read_text())
+                # Foundation rerun must not reset singleton, assignments or grants.
+                sql(path.read_text())
+            else:
+                for name_part in ["01-role.sql", "02-foundation.sql", "03-administration-rpcs.sql"]:
+                    sql((PROPOSALS / name_part).read_text())
+        if args.helpers_red:
+            sql((TESTS / "helpers.sql").read_text())
+            return
         sql((TESTS / "foundation.sql").read_text())
         concurrency_checks()
         cutover_failure_checks()
         sql(cutover_sql())
+        if args.constraints_red:
+            sql((TESTS / "constraints.sql").read_text())
+            return
+        if args.migrations:
+            sql(cutover_sql())
+            sql(staged("authorization_helpers_and_recording"))
+            sql(staged("authorization_helpers_and_recording"))
+            sql((TESTS / "helpers.sql").read_text())
+            sql((TESTS / "constraints.sql").read_text())
+            sql((TESTS / "atomic-administration.sql").read_text())
+            # Both bootstrap migration and already hardened stages are idempotent.
+            sql(staged("superadmin_bootstrap"))
+            sql(staged("superadmin_bootstrap"))
+            sql('CREATE POLICY "test residual global override" ON public.custom_props FOR SELECT TO authenticated USING (public.has_role(auth.uid(),\'admin\'));')
+            result=subprocess.run(psql,input=staged("retire_legacy_global_overrides"),text=True,capture_output=True)
+            if result.returncode==0 or "unreviewed legacy global policy remains" not in result.stderr:
+                raise RuntimeError("Final retirement did not fail closed")
+            sql("SELECT public._test_assert(NOT (SELECT retired FROM platform_private.transition WHERE singleton) AND EXISTS (SELECT 1 FROM pg_policy WHERE polname='Admin can manage custom_props'),'failed final retirement rolls back all global policy removal');")
+            sql('DROP POLICY "test residual global override" ON public.custom_props;')
+            sql(staged("retire_legacy_global_overrides"))
+            sql(staged("retire_legacy_global_overrides"))
+            sql((TESTS / "local-policies.sql").read_text())
+            sql((TESTS / "helpers.sql").read_text())
         sql((TESTS / "authorization.sql").read_text())
         print("PASS: review-only Superadmin proposals PostgreSQL suite")
     finally:

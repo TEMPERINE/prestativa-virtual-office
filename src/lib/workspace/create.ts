@@ -1,3 +1,4 @@
+import { usesSuperadminTransport } from "@/lib/admin/workspace-access";
 // Cria um novo workspace (espaço) de forma isolada, sem afetar o
 // workspace atualmente em uso. Toda a configuração inicial vai direto
 // para a nuvem escopada por workspace_id — não toca em localStorage
@@ -44,6 +45,11 @@ export function suggestSlug(name: string): string {
 async function fetchSourceOverrides(
   sourceWorkspaceId: string
 ): Promise<MapOverrides | null> {
+  if (await usesSuperadminTransport()) {
+    const { adminReadWorkspaceMap } = await import("@/lib/admin/workspace-resources.functions");
+    const row = await adminReadWorkspaceMap({ data: { workspaceId: sourceWorkspaceId } });
+    return row?.data as unknown as MapOverrides ?? null;
+  }
   const { data, error } = await supabase
     .from("map_overrides")
     .select("data")
@@ -65,32 +71,49 @@ export async function createWorkspace(
   const uid = userData.user.id;
 
   // 1) Cria o workspace (com nível).
-  const { data: wsRow, error: wsErr } = await supabase
-    .from("workspaces")
-    .insert({
-      name: input.name.trim(),
-      slug: input.slug.trim(),
-      description: input.description?.trim() || null,
-      cover_url: input.cover_url || null,
-      owner_id: uid,
-      tier: input.tier ?? 1,
-    } as any)
-    .select("id")
-    .single();
+  let workspaceId: string;
+  if (await usesSuperadminTransport()) {
+    const { data: id, error } = await supabase.rpc("platform_create_workspace", {
+      ws_slug: input.slug.trim(), ws_name: input.name.trim(), owner: uid, ws_tier: input.tier ?? 1,
+    });
+    if (error || !id) return { ok: false, error: error?.message ?? "Falha ao criar espaço." };
+    workspaceId = id;
+    const { error: metadataError } = await supabase.from("workspaces").update({
+      description: input.description?.trim() || null, cover_url: input.cover_url || null,
+    }).eq("id", workspaceId);
+    if (metadataError) {
+      await supabase.from("workspaces").delete().eq("id", workspaceId);
+      return { ok: false, error: metadataError.message };
+    }
+  } else {
+    const { data: wsRow, error: wsErr } = await supabase
+      .from("workspaces")
+      .insert({
+        name: input.name.trim(),
+        slug: input.slug.trim(),
+        description: input.description?.trim() || null,
+        cover_url: input.cover_url || null,
+        owner_id: uid,
+        tier: input.tier ?? 1,
+      } as any)
+      .select("id")
+      .single();
 
-  if (wsErr || !wsRow) {
-    return { ok: false, error: wsErr?.message ?? "Falha ao criar espaço." };
-  }
-  const workspaceId = wsRow.id as string;
+    if (wsErr || !wsRow) {
+      return { ok: false, error: wsErr?.message ?? "Falha ao criar espaço." };
+    }
+    workspaceId = wsRow.id as string;
 
-  // 2) Garante o owner como membro.
-  const { error: memErr } = await supabase
-    .from("workspace_members")
-    .insert({ workspace_id: workspaceId, user_id: uid, role: "owner" });
-  if (memErr && !/duplicate|conflict/i.test(memErr.message)) {
-    // Rollback best-effort.
-    await supabase.from("workspaces").delete().eq("id", workspaceId);
-    return { ok: false, error: memErr.message };
+    // 2) Garante o owner como membro.
+    const { error: memErr } = await supabase
+      .from("workspace_members")
+      .insert({ workspace_id: workspaceId, user_id: uid, role: "owner" });
+    if (memErr && !/duplicate|conflict/i.test(memErr.message)) {
+      // Rollback best-effort.
+      await supabase.from("workspaces").delete().eq("id", workspaceId);
+      return { ok: false, error: memErr.message };
+    }
+
   }
 
   // 3) Monta overrides iniciais (em branco ou copiado do atual) + tema.

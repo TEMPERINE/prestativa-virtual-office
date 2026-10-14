@@ -31,7 +31,7 @@ vi.mock("@/integrations/supabase/client", () => {
     };
     return q;
   };
-  return { supabase: { from, auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } } };
+  return { supabase: { from, rpc: async () => ({ data: false, error: null }), auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } } };
 });
 
 const small = (z: string) => ({

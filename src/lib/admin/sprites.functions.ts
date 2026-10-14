@@ -2,27 +2,18 @@
 // Skins criadas aqui são "extras" — as 9 default permanecem em sprite-catalog.ts.
 
 import { createServerFn } from "@tanstack/react-start";
+import { requireSuperadmin } from "@/lib/admin/permissions.server";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 type Facing = "up" | "down" | "left" | "right";
 type Sheets = Record<Facing, string>;
 type Dims = Record<Facing, { w: number; h: number }>;
 
-async function ensureAdmin(ctx: { supabase: any; userId: string }) {
-  const { data, error } = await ctx.supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", ctx.userId)
-    .eq("role", "admin")
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error("forbidden");
-}
 
 export const adminListSkins = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const [{ data: skins, error }, { data: ws }] = await Promise.all([
       supabaseAdmin.from("sprite_skins").select("*").order("created_at", { ascending: false }),
@@ -45,7 +36,7 @@ export const adminCreateSignedUploadUrls = createServerFn({ method: "POST" })
     return input;
   })
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const result: Record<string, { signedUrl: string; path: string; token: string }> = {};
     for (const f of data.facings) {
@@ -78,7 +69,7 @@ export const adminSaveSkin = createServerFn({ method: "POST" })
     },
   )
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     const { error } = await supabaseAdmin
@@ -102,7 +93,7 @@ export const adminUpdateSkin = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { id: string; label?: string; workspaceId?: string | null; gender?: "m" | "f" | "n" }) => input)
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const patch: any = {};
     if (data.label !== undefined) patch.label = data.label.trim();
@@ -117,7 +108,7 @@ export const adminDeleteSkin = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { id: string }) => input)
   .handler(async ({ context, data }) => {
-    await ensureAdmin(context as any);
+    await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin.from("sprite_skins").delete().eq("id", data.id);
     if (error) throw new Error(error.message);

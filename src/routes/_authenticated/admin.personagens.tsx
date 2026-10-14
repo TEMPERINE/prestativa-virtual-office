@@ -58,7 +58,7 @@ function AdminPersonagensPage() {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) { navigate({ to: "/auth" }); return false; }
     const { data } = await supabase.from("user_roles").select("role")
-      .eq("user_id", u.user.id).eq("role", "admin").maybeSingle();
+      .eq("user_id", u.user.id).eq("role", "superadmin").maybeSingle();
     return !!data;
   };
 
