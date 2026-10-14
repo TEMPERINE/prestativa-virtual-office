@@ -83,7 +83,8 @@ def run():
 
     def sql(text):
         docker("exec", "-i", name, "psql", "-X", "-q",
-               "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres",
+               "-v", "ON_ERROR_STOP=1", "-h", "127.0.0.1",
+               "-U", "postgres", "-d", "postgres",
                input=text, text=True)
 
     started = False
@@ -92,9 +93,12 @@ def run():
                "-e", "POSTGRES_HOST_AUTH_METHOD=trust", IMAGE,
                stdout=subprocess.DEVNULL)
         started = True
+        # The image init server listens on a Unix socket only. Wait for TCP
+        # inside the container so readiness refers to the final server.
         for _ in range(100):
             ready = subprocess.run(
-                ["docker", "exec", name, "pg_isready", "-U", "postgres"],
+                ["docker", "exec", name, "pg_isready", "-h", "127.0.0.1",
+                 "-U", "postgres"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             if ready.returncode == 0:
