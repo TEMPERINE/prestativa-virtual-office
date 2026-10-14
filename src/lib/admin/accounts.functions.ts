@@ -28,7 +28,8 @@ export const adminCreateSignupInvite = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     await requireSuperadmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: invite, error } = await supabaseAdmin.from("signup_invites").insert({
+    // signup_invites is not in the generated schema yet; untyped until its migration lands.
+    const { data: invite, error } = await (supabaseAdmin as any).from("signup_invites").insert({
       plan: data.plan, tier: data.tier, email: data.email?.trim() || null,
       workspace_name_suggestion: data.workspaceName?.trim() || null,
       created_by: context.userId,

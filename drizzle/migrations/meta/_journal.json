@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1792017208457,
+      "tag": "0000_superadmin_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792017490212,
+      "tag": "0001_superadmin_foundation_and_rpcs",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792017516694,
+      "tag": "0002_superadmin_bootstrap",
+      "breakpoints": true
+    }
+  ]
+}
