@@ -15,6 +15,13 @@
       "when": 1792017490212,
       "tag": "0001_superadmin_foundation_and_rpcs",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792017516694,
+      "tag": "0002_superadmin_bootstrap",
+      "breakpoints": true
     }
   ]
 }
