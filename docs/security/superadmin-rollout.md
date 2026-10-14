@@ -6,16 +6,16 @@ Preparado em 14/10/2026 na branch `codex/workspace-membership-hardening`. **Não
 
 | Ordem | Migration / SQL completo | Alterações |
 | --- | --- | --- |
-| 1 | [20261014120000_superadmin_role.sql](../../supabase/migrations/20261014120000_superadmin_role.sql) | Adiciona `superadmin` ao enum `app_role`, sem atribuições. Commit separado antes do uso do valor. |
-| 2 | [20261014120100_superadmin_foundation_and_rpcs.sql](../../supabase/migrations/20261014120100_superadmin_foundation_and_rpcs.sql) | Estado/auditoria privados, singleton, proteções do titular, bootstrap/recuperação, helpers privados, RPCs administrativas e gates. Não retira overrides legados. |
+| 1 | [20261014120000_superadmin_role.sql](../../supabase/staged-migrations/20261014120000_superadmin_role.sql) | Adiciona `superadmin` ao enum `app_role`, sem atribuições. Commit separado antes do uso do valor. |
+| 2 | [20261014120100_superadmin_foundation_and_rpcs.sql](../../supabase/staged-migrations/20261014120100_superadmin_foundation_and_rpcs.sql) | Estado/auditoria privados, singleton, proteções do titular, bootstrap/recuperação, helpers privados, RPCs administrativas e gates. Não retira overrides legados. |
 | 3 | [20261014120200_superadmin_bootstrap.sql](../../supabase/staged-migrations/20261014120200_superadmin_bootstrap.sql) | Atribui somente à única interseção ativa `admin + master`, revalidando counts 1/1/1. Mantém admin/master. Não contém identidade pessoal. |
 | **Gate A** | Aplicação nova + homologação | Reconhecer Superadmin e validar acesso global sem membership/labels antigas. Confirmar sessão com `platform_acknowledge_superadmin_access()` e atestar SHA de 40 caracteres via `platform_authorize_cutover(text)`, service-only. |
 | 4 | [20261014120300_workspace_membership_hardening.sql](../../supabase/staged-migrations/20261014120300_workspace_membership_hardening.sql) | Fecha autoentrada/autopromoção, protege owner canônico, restringe convites a member e valida aceite. Retém overrides globais legados. |
 | 5 | [20261014120400_authorization_helpers_and_recording.sql](../../supabase/staged-migrations/20261014120400_authorization_helpers_and_recording.sql) | Restringe wrappers públicos/EXECUTE; atualiza perfil e capacidade de gravação; separa consulta de cliente de autorização interna. |
 | **Gate B** | Homologação após hardening | Validar operações globais e locais, convites, transferência, gravações e overlays reais. Reconfirmar titular/commit se houver recuperação ou alteração do aplicativo. |
-| 6 | [20261014120500_retire_legacy_global_overrides.sql](../../supabase/staged-migrations/20261014120500_retire_legacy_global_overrides.sql) | Remove equivalência administrativa global de admin/master nas policies/funções mapeadas. Exige fases 4/5 e gate válido. Aborta se restar override global não inventariado. |
+| 6 | [20261014120500_retire_legacy_global_overrides.sql](../../supabase/staged-migrations/20261014120500_retire_legacy_global_overrides.sql) | Remove equivalência administrativa global de admin/master nas policies/funções mapeadas. Exige fases 4/5 e gate válido. Aborta por policy residual, função desconhecida com literal admin/master ou divergência na allowlist de funções. |
 
-Somente 1/2 estão na descoberta automática de migrations. **Não executar `db push` indiscriminadamente nem copiar os SQLs staged todos de uma vez.** 3–6 são migrations executáveis com `BEGIN/COMMIT`, mas deliberadamente fora de `supabase/migrations`; devem ser incorporadas/executadas individualmente na etapa autorizada e registradas pelo operador no histórico. Os arquivos históricos `docs/security/proposals/superadmin/01–06` e o draft antigo ficam superados; não executar junto deste pacote.
+**As seis etapas estão em `supabase/staged-migrations`, fora da descoberta automática.** Não copiar/aplicar todas de uma vez. Cada arquivo deve ser incorporado/executado individualmente somente na etapa explicitamente autorizada e registrado pelo operador no histórico. 2–6 têm `BEGIN/COMMIT`; 1 é uma DDL aditiva que precisa de commit separado antes de usar o novo enum. Os arquivos históricos `docs/security/proposals/superadmin/01–06` e o draft antigo ficam superados; não executar junto deste pacote.
 
 O Gate B é uma aprovação operacional adicional; o banco verifica os flags/atestação, mas não consegue comprovar que a interface foi homologada. Não executar a fase 6 apenas porque a chamada SQL aceita.
 
@@ -61,6 +61,26 @@ Bootstrap/recuperação/atestação: EXECUTE apenas service_role, além do owner
 
 O SQL completo de cada policy está nos arquivos acima. Policies inesperadas de membership ou overrides globais residuais abortam a transação para revisão explícita.
 
+## Gate de funções da fase 6
+
+Além de `pg_policies`, o gate inventaria `pg_proc` com `pg_get_functiondef`, incluindo funções/procedures em public, platform_private e outros schemas de aplicação. Exclui schemas de sistema e não passa aggregates a pg_get_functiondef. É uma verificação textual conservadora: qualquer literal exato admin/master, com aspas simples ou dollar quoting, exige revisão. Menção não relacionada a autorização também pode bloquear, deliberadamente, para análise humana.
+
+A allowlist fixa as sete assinaturas abaixo, fingerprint MD5 do corpo revisado, owner postgres, linguagem, SECURITY DEFINER, search_path e EXECUTE efetivo para anon/authenticated/service_role. O fingerprint serve para detectar divergência, não como uma prova semântica ou assinatura criptográfica. Sobrecarga, alteração do corpo (mesmo removendo as labels), owner/configuração/grants inesperados ou função allowlisted ausente bloqueiam o corte.
+
+| Exceção explícita | Motivo restrito |
+| --- | --- |
+| platform_bootstrap_superadmin() | Interseção inicial única validada; service-only, sem autoridade permanente por admin/master. |
+| platform_recover_superadmin(uuid) | Recuperação service-only e transferência de compatibilidade legada antes do corte. |
+| platform_set_global_role(uuid,app_role,boolean) | Exige Superadmin explícito; admin/master são roles-alvo, sem autorizar o ator. |
+| platform_private.is_workspace_admin(uuid,uuid) | Owner/admin local por workspace, sem override global. |
+| platform_private.require_membership_manager(uuid,uuid,workspace_role) | Superadmin explícito ou gestão local limitada a membros comuns. |
+| platform_transfer_workspace_owner(uuid,uuid,workspace_role) | Superadmin explícito; admin é apenas papel local permitido para o antigo owner. |
+| can_record_meeting(uuid,uuid) | Capacidade de gravação limitada a membership/owner canônico, sem poder administrativo global. |
+
+A criação própria continua somente na policy previamente revisada, não justifica exceção genérica para funções. Lifecycle e gestão local acima também não concedem autorização por admin/master global. Não há wildcard de nomes/schemas.
+
+Função desconhecida não é reescrita nem removida. O erro lista apenas assinaturas, sem corpo/dados pessoais, e reverte toda a fase 6: policies, grants, funções e flag retired. Fases anteriores permanecem. O gate não detecta semanticamente toda autorização dinâmica/construída; o inventário e a revisão humana continuam obrigatórios. Funções legítimas adicionais exigem revisão explícita, nunca expansão automática da allowlist.
+
 ## Aplicativo
 
 Guard central `permissions.server.ts`; contas, espaços, personagens e geração de sprites usam Superadmin. Memberships/perfis/criação/transferência usam RPCs. Painéis e botões globais reconhecem a role explícita; criação própria elegível continua separada. A UI distingue atribuição de membership de **Transferir propriedade**, com confirmação; o antigo owner vira member.
@@ -87,4 +107,6 @@ Aplicativo: `npm test`, `npx tsc --noEmit`, `npm run build`. Testes executam gua
 
 Isso comprova o comportamento do código com fixtures; **não comprova que a conta real já recebeu Superadmin**. Antes de aplicar/cortar: REST/JWT reais, Auth admin API, painéis/overlays na composição real, operações globais sem membership, regras locais, gravação e ensaio de recovery. Memberships órfãs após exclusão Auth são limitação histórica fora deste pacote; leitura ampla account_groups continua pendente. Nada autoriza aplicação/publicação automática.
 
-Verificação local concluída em 14/10/2026: **133 asserções SQL**, dois cenários concorrentes, **643 testes Vitest em 57 arquivos**, typecheck e build aprovados. A revisão independente encontrou duas regressões (helpers privados em RLS e rejeições do transporte); ambas foram reproduzidas e corrigidas com testes. O build mantém avisos de dependências, sem falha de compilação.
+Verificação local concluída em 14/10/2026: **133 asserções SQL no pacote anterior**, dois cenários concorrentes, **643 testes Vitest em 57 arquivos**, typecheck e build aprovados. A revisão independente encontrou duas regressões (helpers privados em RLS e rejeições do transporte); ambas foram reproduzidas e corrigidas com testes. O build mantém avisos de dependências, sem falha de compilação.
+
+Atualização do gate/staging (14/10/2026): as seis etapas saíram da descoberta automática. A suite executável passou **142 asserções SQL**, incluindo nove casos novos de bloqueio e rollback por função/grants inesperados; referência histórica e suite de membership também verificadas separadamente. Nesta atualização, **643 testes Vitest em 57 arquivos**, typecheck e build passaram novamente. A referência histórica passou 90 asserções e a suite de membership passou 21, todas em bancos descartáveis.

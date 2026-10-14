@@ -91,6 +91,60 @@ BEGIN
     RAISE EXCEPTION 'unreviewed legacy global policy remains; cutover aborted';
   END IF;
 END $$;
+-- Conservative function inventory: any exact legacy role literal is reviewed,
+-- even in a private/custom schema or a routine without client EXECUTE. It also
+-- catches dollar-quoted role literals. System schemas are excluded; aggregates
+-- are not passed to pg_get_functiondef. Unknown routines are NEVER rewritten.
+-- Names alone do not authorize exceptions: full signature, exact reviewed body,
+-- owner, language, security/search_path and effective EXECUTE must all match.
+DO $function_gate$
+DECLARE unreviewed text;
+BEGIN
+  WITH allowlist(signature,body_md5,language,authenticated_execute,service_execute,reason) AS (
+    VALUES
+      ('public.platform_bootstrap_superadmin()','90db0a3d1c05b421e7fda7a7d75c870e','plpgsql',false,true,'one-time validated intersection; no runtime legacy override'),
+      ('public.platform_recover_superadmin(uuid)','9e8dcf760fb482e0f54e740cc349931a','plpgsql',false,true,'service-only recovery and transitional legacy transfer'),
+      ('public.platform_set_global_role(uuid,public.app_role,boolean)','071f6df901039a3f478c37e54c313391','plpgsql',true,false,'explicit Superadmin guard; preserves own legacy access until retirement'),
+      ('platform_private.is_workspace_admin(uuid,uuid)','d162652f8b76df8316fb1778cab40a01','sql',false,false,'local workspace owner/admin lookup; no global override'),
+      ('platform_private.require_membership_manager(uuid,uuid,public.workspace_role)','674e922a9732825e1fa9432fe81ac388','plpgsql',false,false,'Superadmin or bounded local common-member management'),
+      ('public.platform_transfer_workspace_owner(uuid,uuid,public.workspace_role)','60eecad14c0e6bc30dfb4a99de637e6e','plpgsql',true,false,'Superadmin-only atomic transfer; admin is a local former-owner role'),
+      ('public.can_record_meeting(uuid,uuid)','1a1a6f0c94a3a5cf3a73e35b6f66d54e','sql',true,true,'recording capability bound to workspace membership/canonical ownership')
+  ), functions AS MATERIALIZED (
+    SELECT p.oid,p.prosrc,p.proowner,p.prosecdef,p.proconfig,p.prokind,
+      l.lanname,n.nspname,p.proname,pg_catalog.pg_get_functiondef(p.oid) AS definition
+    FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+    JOIN pg_catalog.pg_language l ON l.oid=p.prolang
+    WHERE p.prokind IN ('f','p') AND n.nspname<>'information_schema'
+      AND n.nspname !~ '^pg_'
+  ), violations AS (
+    SELECT pg_catalog.format('%I.%I(%s)',f.nspname,f.proname,
+      pg_catalog.oidvectortypes(p.proargtypes)) AS signature
+    FROM functions f JOIN pg_catalog.pg_proc p ON p.oid=f.oid
+    LEFT JOIN allowlist a ON f.oid=pg_catalog.to_regprocedure(a.signature)
+    WHERE (f.definition ~* $literal$'(admin|master)'$literal$
+      OR f.definition ~* $dollar$\$[a-z_0-9]*\$[[:space:]]*(admin|master)[[:space:]]*\$[a-z_0-9]*\$$dollar$
+      OR a.signature IS NOT NULL)
+    AND (a.signature IS NULL
+      OR pg_catalog.md5(f.prosrc)<>a.body_md5
+      OR f.prokind<>'f' OR f.proowner<>'postgres'::regrole
+      OR NOT f.prosecdef OR f.lanname<>a.language
+      OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+      OR pg_catalog.has_function_privilege('anon',f.oid,'EXECUTE')
+      OR pg_catalog.has_function_privilege('authenticated',f.oid,'EXECUTE')<>a.authenticated_execute
+      OR pg_catalog.has_function_privilege('service_role',f.oid,'EXECUTE')<>a.service_execute)
+    UNION ALL
+    SELECT a.signature FROM allowlist a
+    WHERE NOT EXISTS(SELECT 1 FROM functions f WHERE f.oid=pg_catalog.to_regprocedure(a.signature))
+  )
+  SELECT pg_catalog.string_agg(signature,', ' ORDER BY signature) INTO unreviewed FROM violations;
+  IF unreviewed IS NOT NULL THEN
+    RAISE EXCEPTION 'unreviewed legacy authorization function remains; cutover aborted'
+      USING ERRCODE='23514',DETAIL=unreviewed,
+        HINT='Review listed signatures explicitly; do not rewrite or broaden the allowlist automatically.';
+  END IF;
+END $function_gate$;
+
 UPDATE platform_private.transition SET retired=true WHERE singleton;
 
 COMMIT;

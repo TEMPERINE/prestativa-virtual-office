@@ -27,7 +27,7 @@ A role owner deve concordar com `workspaces.owner_id`. Superadmin pode transferi
 
 ## Atribuição e proteção
 
-- Migrations automáticas criam apenas infraestrutura. O SQL de atribuição é separado e depende de execução explicitamente autorizada.
+- As seis migrations estão staged, fora da descoberta automática. Infraestrutura e atribuição dependem de execução individual explicitamente autorizada.
 - `platform_bootstrap_superadmin()` é service-only, sem identidade por argumento. Confere counts 1/1/1, seleciona a única interseção admin+master ativa e atribui a label explícita. Mudança de inventário aborta. Preserva as labels legadas.
 - A interseção é critério apenas dessa inicialização, nunca autorização permanente. Outra conta admin+master não se torna Superadmin.
 - Índice parcial limita a uma atribuição de Superadmin, mesmo se o titular ficar inacessível. Recuperação troca essa atribuição em uma transação.
@@ -41,9 +41,9 @@ A role owner deve concordar com `workspaces.owner_id`. Superadmin pode transferi
 
 Consulte a tabela de seis arquivos em [superadmin-rollout.md](superadmin-rollout.md). Ordem: enum → foundation/RPCs → bootstrap privado → rollout/homologação da aplicação → confirmação do titular + atestação service-only do commit → memberships/convites → helpers/perfil/gravação → nova homologação → retirada dos overrides globais.
 
-Somente os dois primeiros SQLs ficam em `supabase/migrations`. Os quatro restantes ficam em `supabase/staged-migrations`, fora da descoberta automática. Cada etapa posterior tem transação própria; erro reverte a etapa inteira, preservando as fases anteriores. O enum precisa de commit separado antes de seu uso.
+Todos os seis SQLs ficam em `supabase/staged-migrations`, fora da descoberta automática. Cada etapa posterior tem transação própria; erro reverte a etapa inteira, preservando as fases anteriores. O enum precisa de commit separado antes de seu uso.
 
-RPCs locais ficam desabilitadas até o hardening, pois antes disso a policy de autoentrada não comprovava a legitimidade do admin local. Não ampliar admin/master durante a janela legada. `platform_acknowledge_superadmin_access` confirma a sessão; `platform_authorize_cutover` registra a homologação do commit pelo operador. O gate mantém lock até COMMIT, impedindo recuperação concorrente durante a etapa.
+RPCs locais ficam desabilitadas até o hardening, pois antes disso a policy de autoentrada não comprovava a legitimidade do admin local. Não ampliar admin/master durante a janela legada. `platform_acknowledge_superadmin_access` confirma a sessão; `platform_authorize_cutover` registra a homologação do commit pelo operador. O gate mantém lock até COMMIT, impedindo recuperação concorrente durante a etapa. A fase final também inventaria funções por pg_proc/pg_get_functiondef e exige allowlist explícita por assinatura/corpo/configuração/EXECUTE; desconhecidas abortam sem reescrita.
 
 ## Funções/RPCs
 

@@ -14,7 +14,7 @@
 
 - Não aplicar em produção, fazer merge/push ou publicar sem autorização específica.
 - Não versionar identidades reais, credenciais, backups privados ou tokens.
-- Enum/foundation executáveis ficam em `supabase/migrations`; bootstrap/hardening/helpers/corte final ficam em `supabase/staged-migrations`, fora da descoberta automática até autorização específica.
+- As seis etapas executáveis ficam em `supabase/staged-migrations`, fora da descoberta automática até autorização específica, inclusive enum/foundation.
 - Confirmar catálogo/owners/grants reais; counts informados não comprovam o catálogo.
 - Não retirar overrides antes de confirmar Superadmin funcional em todos os fluxos.
 - Um Superadmin; recuperação service-only; nenhuma promoção automática admin/master.
@@ -40,7 +40,7 @@ Manifesto final: [superadmin-rollout.md](../../security/superadmin-rollout.md), 
 ### Task 1: Inventário e preparação executável
 
 - [x] Receber inventário reportado: interseção admin/master única; 1 workspace, 17 members, 1 owner canônico, 0 admins locais/convites e nenhuma inconsistência. Normalização não necessária.
-- [x] Preparar enum/foundation/RPCs e quatro etapas gated executáveis, sem atribuição no fluxo automático.
+- [x] Preparar seis etapas executáveis staged, sem qualquer migration de segurança no fluxo automático.
 - [x] Preservar labels legadas, singleton e recuperação service-only, sem IDs pessoais versionados.
 - [ ] Antes da execução real, repetir metadados/owners/grants e confirmar Auth.deleted_at/banned_until, RLS/bypass do owner postgres. O JSON completo do catálogo não foi entregue nesta conversa.
 
@@ -53,7 +53,7 @@ Manifesto final: [superadmin-rollout.md](../../security/superadmin-rollout.md), 
 - [x] Convites member-only em CHECK/RPC/aceite; validação de emissor e locks ordenados.
 - [x] Helpers públicos escopados e grants de EXECUTE revisados; helpers privados isolados; RLS usa wrappers públicos callable.
 - [x] Perfil/gravação em nova hierarquia, mantendo capacidades membership-bound aprovadas.
-- [x] Corte final separado, com flags e confirmação/atestação; SQL desconhecido aborta.
+- [x] Corte final separado, com flags e confirmação/atestação; policies e funções desconhecidas abortam. Allowlist confere assinatura, corpo, owner, segurança e EXECUTE; sem reescrita automática.
 - [ ] Testar endpoints REST/JWT/Auth de Supabase em homologação autorizada; nenhum acesso real nesta tarefa.
 
 ### Task 3: Guards, handlers e UI
