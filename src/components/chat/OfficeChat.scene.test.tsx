@@ -237,6 +237,26 @@ it("avatar's real interaction menu opens Chat without replacing the scene or its
   fireEvent.click(peer);
   fireEvent.click(await screen.findByRole("button", { name: "Enviar mensagem" }));
   await screen.findByRole("textbox", { name: "Mensagem" });
+  const panelElement = screen.getByRole("dialog", { name: "Mensagens privadas" });
+  const header = screen.getByText("Mensagens").closest("header")!;
+  header.setPointerCapture = vi.fn();
+  header.releasePointerCapture = vi.fn();
+  const beforeLeft = parseFloat(panelElement.style.left);
+  const dragPointer = (type: string, x: number, y: number) => {
+    const event = new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: x,
+      clientY: y,
+    });
+    Object.defineProperties(event, { pointerId: { value: 1 }, isPrimary: { value: true } });
+    fireEvent(header, event);
+  };
+  dragPointer("pointerdown", 900, 80);
+  dragPointer("pointermove", 820, 120);
+  dragPointer("pointerup", 820, 120);
+  expect(parseFloat(panelElement.style.left)).toBe(beforeLeft - 80);
   expect(api.start).toHaveBeenCalledWith(ws, io.peer);
   expect(document.querySelector("[data-office-topbar]")?.closest('[tabindex="0"]')).toBe(scene);
   fireEvent.click(screen.getByLabelText("Fechar mensagens"));

@@ -6,6 +6,7 @@ import { SpriteAvatar } from "@/components/profile/SpriteAvatar";
 import type { ChatState, ChatStore } from "@/lib/chat/store";
 import { ChatThread } from "./ChatThread";
 import { findChatSticker } from "@/lib/chat/stickers";
+import { useChatPanelPosition } from "./use-chat-panel-position";
 
 export function ChatPanel({
   state,
@@ -25,10 +26,13 @@ export function ChatPanel({
     document.addEventListener("fullscreenchange", update);
     return () => document.removeEventListener("fullscreenchange", update);
   }, []);
+  const position = useChatPanelPosition(host);
   const selected = state.conversations.find((c) => c.id === state.selectedId);
   if (!host) return null;
   return createPortal(
     <section
+      ref={position.panelRef}
+      style={position.style}
       role="dialog"
       aria-modal="false"
       aria-label="Mensagens privadas"
@@ -44,7 +48,12 @@ export function ChatPanel({
         }
       }}
     >
-      <header className="flex shrink-0 items-center gap-2 border-b bg-muted/30 px-4 py-3">
+      <header
+        ref={position.headerRef}
+        style={position.headerStyle}
+        {...position.headerEvents}
+        className="flex shrink-0 items-center gap-2 border-b bg-muted/30 px-4 py-3"
+      >
         <MessageCircle className="h-4 w-4 text-primary" />
         <h2 className="text-sm font-semibold">Mensagens</h2>
         {state.connection === "offline" && (
