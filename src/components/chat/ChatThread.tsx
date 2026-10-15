@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, Check, Loader2, Send, Smile, Sticker } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,41 +7,42 @@ import { CHAT_MAX_LENGTH, type ChatConversation } from "@/lib/chat/types";
 import type { ChatState, ChatStore } from "@/lib/chat/store";
 import { CHAT_STICKERS, findChatSticker } from "@/lib/chat/stickers";
 
-const EMOJIS = ["😊", "💖", "👍", "🎉", "☕", "🙏", "😂", "✅", "👋", "🙌", "💡", "🚀"];
-function StaticSticker({ id }: { id: string }) {
-  const sticker = findChatSticker(id);
-  if (!sticker) return <span>Sticker indisponível</span>;
-  return (
-    <svg width="96" height="96" viewBox="0 0 96 96" role="img" aria-label={sticker.label}>
-      <rect x="4" y="4" width="88" height="88" rx="28" fill={sticker.color} />
-      <text x="48" y="59" textAnchor="middle" fontSize="44">
-        {sticker.glyph}
-      </text>
-      <text x="48" y="80" textAnchor="middle" fontSize="11" fontWeight="600" fill="#51304b">
-        {sticker.label}
-      </text>
-    </svg>
-  );
-}
-function time(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? ""
-    : date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-}
+import { ChatMessageItem, StaticSticker } from "./ChatMessageItem";
 
+const EMOJIS = ["😊", "💖", "👍", "🎉", "☕", "🙏", "😂", "✅", "👋", "🙌", "💡", "🚀"];
 export function ChatThread({
   conversation,
   state,
   store,
   userId,
+  portalHost,
 }: {
   conversation: ChatConversation;
   state: ChatState;
   store: ChatStore;
   userId: string;
+  portalHost: Element;
 }) {
   const [text, setText] = useState("");
+  const [replyTo, setReplyTo] = useState<string | null>(null);
+  const [overlays, setOverlays] = useState(new Set<string>());
+  const onOverlayChange = useCallback(
+    (id: string, open: boolean) => {
+      if (open) store.setReading(false);
+      setOverlays((old) => {
+        if (old.has(id) === open) return old;
+        const next = new Set(old);
+        if (open) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    },
+    [store],
+  );
+  const replying = replyTo
+    ? [...state.messages, ...(state.replyMessages ?? [])].find((m) => m.id === replyTo)
+    : null;
+  const blocked = overlays.size > 0;
   const [picker, setPicker] = useState<"emoji" | "sticker" | null>(null);
   const [atLatest, setAtLatest] = useState(true);
   const [visible, setVisible] = useState(
@@ -65,9 +66,9 @@ export function ChatThread({
     };
   }, []);
   useEffect(() => {
-    store.setReading(visible && atLatest && !state.loading);
+    store.setReading(visible && atLatest && !state.loading && !blocked);
     return () => store.setReading(false);
-  }, [store, visible, atLatest, state.loading]);
+  }, [store, visible, atLatest, state.loading, blocked]);
   useLayoutEffect(() => {
     const el = scroll.current;
     if (!el) return;
@@ -77,7 +78,8 @@ export function ChatThread({
     } else if (atLatest) el.scrollTop = el.scrollHeight;
   }, [firstId, lastId, state.loadingOlder, atLatest]);
   async function send(body = text, type: "text" | "sticker" = "text") {
-    if (await store.send(body, type)) {
+    if (await (replyTo ? store.send(body, type, replyTo) : store.send(body, type))) {
+      setReplyTo(null);
       if (type === "text") setText("");
       setPicker(null);
       setAtLatest(true);
@@ -131,7 +133,7 @@ export function ChatThread({
           const el = event.currentTarget;
           const latest = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
           setAtLatest(latest);
-          store.setReading(latest && visible && !state.loading);
+          store.setReading(latest && visible && !state.loading && !blocked);
         }}
       >
         {state.hasMore && (
@@ -150,30 +152,33 @@ export function ChatThread({
           </p>
         )}
         <ol className="space-y-3">
-          {state.messages.map((message) => {
-            const own = message.sender_id === userId;
-            return (
-              <li key={message.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[85%] rounded-2xl px-3 py-2 ${own ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted text-foreground"}`}
-                >
-                  {message.message_type === "sticker" ? (
-                    <StaticSticker id={message.body} />
-                  ) : (
-                    <p className="whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">
-                      {message.body}
-                    </p>
-                  )}
-                  <time
-                    dateTime={message.created_at}
-                    className="mt-1 block text-right text-[10px] opacity-65"
-                  >
-                    {time(message.created_at)}
-                  </time>
-                </div>
-              </li>
-            );
-          })}
+          {state.messages.map((message) => (
+            <ChatMessageItem
+              key={message.id}
+              message={message}
+              conversation={conversation}
+              state={state}
+              store={store}
+              userId={userId}
+              host={portalHost}
+              onReply={(id) => {
+                setReplyTo(id);
+                input.current?.focus();
+              }}
+              onOverlayChange={onOverlayChange}
+              onJump={(id) => {
+                setAtLatest(false);
+                store.setReading(false);
+                void store.revealMessage(id).then((found) => {
+                  if (found) {
+                    const el = document.getElementById(`chat-message-${id}`);
+                    el?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+                    el?.focus({ preventScroll: true });
+                  }
+                });
+              }}
+            />
+          ))}
         </ol>
       </div>
       {!atLatest && (
@@ -189,6 +194,33 @@ export function ChatThread({
         </button>
       )}
       <div className="relative border-t bg-background p-3">
+        {replyTo && (
+          <div
+            aria-label="Respondendo à mensagem"
+            className="mb-2 flex items-center gap-2 rounded-lg border-l-2 border-primary bg-muted px-3 py-2 text-xs"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">
+                {replying?.sender_id === userId ? "Você" : conversation.peer_name}
+              </p>
+              <p className="truncate">
+                {replying?.cancelled_at
+                  ? "Mensagem cancelada"
+                  : replying?.message_type === "sticker"
+                    ? `Sticker · ${findChatSticker(replying.body ?? "")?.label ?? ""}`
+                    : (replying?.body?.slice(0, 160) ?? "Mensagem indisponível")}
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Cancelar resposta"
+              className="rounded p-1 hover:bg-accent"
+              onClick={() => setReplyTo(null)}
+            >
+              ×
+            </button>
+          </div>
+        )}
         {picker && (
           <div
             data-chat-picker
@@ -279,7 +311,7 @@ export function ChatThread({
           <Button
             size="sm"
             aria-label="Enviar mensagem"
-            disabled={state.sending || !text.trim()}
+            disabled={state.sending || !text.trim() || !!replying?.cancelled_at}
             onClick={() => void send()}
           >
             {state.sending ? (

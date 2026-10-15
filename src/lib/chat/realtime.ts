@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import type { ChatRealtime } from "./types";
-import { parseChatMessage } from "./api";
+import { parseChatMessage, parseChatReaction } from "./api";
 
 // A leaving Supabase channel can remain registered until its async ack.
 // Unique topics prevent subscribe() from reusing that old channel on A→B→A.
@@ -50,14 +50,16 @@ export function createChatRealtime(client: SupabaseClient<Database>): ChatRealti
         void client.removeChannel(channel).catch(() => {});
       };
     },
-    messages(conversationId, received, ready) {
+    messages(conversationId, received, ready, reaction) {
       let closed = false;
-      const channel = client
-        .channel(`office-chat:messages:${conversationId}:${++subscriptionSequence}`)
-        .on(
+      const channel = client.channel(
+        `office-chat:messages:${conversationId}:${++subscriptionSequence}`,
+      );
+      for (const event of ["INSERT", "UPDATE"] as const) {
+        channel.on(
           "postgres_changes",
           {
-            event: "INSERT",
+            event,
             schema: "public",
             table: "chat_messages",
             filter: `conversation_id=eq.${conversationId}`,
@@ -66,10 +68,27 @@ export function createChatRealtime(client: SupabaseClient<Database>): ChatRealti
             const message = parseChatMessage(payload.new);
             if (!closed && message?.conversation_id === conversationId) received(message);
           },
-        )
-        .subscribe((status) => {
-          if (!closed && status === "SUBSCRIBED") ready();
-        });
+        );
+      }
+      if (reaction)
+        for (const event of ["INSERT", "UPDATE"] as const) {
+          channel.on(
+            "postgres_changes",
+            {
+              event,
+              schema: "public",
+              table: "chat_message_reactions",
+              filter: `conversation_id=eq.${conversationId}`,
+            },
+            (payload) => {
+              const row = parseChatReaction(payload.new);
+              if (!closed && row?.conversation_id === conversationId) reaction(row);
+            },
+          );
+        }
+      channel.subscribe((status) => {
+        if (!closed && status === "SUBSCRIBED") ready();
+      });
       return () => {
         if (closed) return;
         closed = true;

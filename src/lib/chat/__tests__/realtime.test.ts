@@ -90,3 +90,41 @@ describe("chat Realtime", () => {
     expect(s.client.channel.mock.calls[0][0]).not.toBe(s.client.channel.mock.calls[1][0]);
   });
 });
+
+it("selected channel receives scoped cancellation updates and versioned reaction tombstones", () => {
+  const { realtime, channels, client } = setup();
+  const received = vi.fn(),
+    reaction = vi.fn();
+  const off = realtime.messages("conversation", received, vi.fn(), reaction);
+  expect(channels).toHaveLength(1);
+  const update = channels[0].handlers.find(
+    (h) => h.config.table === "chat_messages" && h.config.event === "UPDATE",
+  );
+  expect(update?.config.filter).toBe("conversation_id=eq.conversation");
+  update?.callback({ new: { ...message, body: null, cancelled_at: "2026-10-15T10:00:00Z" } });
+  expect(received).toHaveBeenCalledWith({
+    ...message,
+    body: null,
+    cancelled_at: "2026-10-15T10:00:00Z",
+  });
+  const reactionUpdate = channels[0].handlers.find(
+    (h) => h.config.table === "chat_message_reactions" && h.config.event === "UPDATE",
+  );
+  expect(reactionUpdate?.config.filter).toBe("conversation_id=eq.conversation");
+  const row = {
+    message_id: "m",
+    conversation_id: "conversation",
+    user_id: "peer",
+    emoji: null,
+    revision: 2,
+    created_at: "2026-10-15T10:00:00Z",
+  };
+  reactionUpdate?.callback({ new: row });
+  expect(reaction).toHaveBeenCalledWith(row);
+  reactionUpdate?.callback({ new: { ...row, conversation_id: "other" } });
+  expect(reaction).toHaveBeenCalledTimes(1);
+  off();
+  reactionUpdate?.callback({ new: { ...row, revision: 3 } });
+  expect(reaction).toHaveBeenCalledTimes(1);
+  expect(client.removeChannel).toHaveBeenCalledTimes(1);
+});

@@ -4,6 +4,7 @@ Existing schema shapes use archived SQL; no Superadmin/staged security SQL is ru
 Auth/JWT and Supabase Realtime delivery are not provided by this local harness.
 """
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -17,6 +18,8 @@ TESTS = ROOT / 'supabase/tests/office-chat'
 def run():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--baseline',action='store_true',help='Expect regression failure without the new chat SQL')
+    parser.add_argument('--interactions',action='store_true',help='Also test staged incremental interactions in the disposable DB')
+    parser.add_argument('--interactions-baseline',action='store_true',help='Run interaction regressions against MVP only (expected failure)')
     args=parser.parse_args()
     migration = '' if args.baseline else MIGRATION.read_text()
     assert not list((ROOT / 'supabase/migrations').glob('*office_chat_mvp.sql')), 'Chat must remain staged'
@@ -131,6 +134,46 @@ def run():
         if blocker.returncode or delayed.returncode: raise RuntimeError('Clock ordering fixture failed')
         sql("SELECT public._chat_assert((SELECT c.last_message_at>=(SELECT max(m.created_at) FROM public.chat_messages m WHERE m.conversation_id=c.id) FROM public.chat_conversations c WHERE c.id='"+cid+"'),'last_message_at follows serialization order, not invocation time');")
         sql(original.replace('CREATE FUNCTION','CREATE OR REPLACE FUNCTION',1));sql('DROP FUNCTION public.chat_lock_conversation_actual(uuid);')
+        if args.interactions or args.interactions_baseline:
+            if not args.interactions_baseline:
+                incremental = (ROOT/'supabase/staged-migrations/20261015140000_office_chat_interactions.sql').read_text()
+                mirror = (ROOT/'supabase/staged-migrations/drizzle/0004_office_chat_interactions.sql').read_text()
+                assert incremental.replace('BEGIN;\n','',1).removesuffix('COMMIT;\n').rstrip() == mirror.rstrip()
+                assert not (ROOT/'drizzle/migrations/0004_office_chat_interactions.sql').exists()
+                sql(incremental)
+            sql((TESTS/'interactions.sql').read_text())
+            assert legacy == sql("SELECT md5(string_agg(pg_get_functiondef(p.oid),E'\\n' ORDER BY p.oid)) FROM pg_proc p WHERE p.pronamespace='public'::regnamespace AND p.prokind='f' AND p.proname NOT LIKE 'chat_%';")
+            assert policies == sql("SELECT md5(string_agg(to_jsonb(p)::text,E'\\n' ORDER BY schemaname,tablename,policyname)) FROM pg_policies p WHERE tablename NOT IN('chat_conversations','chat_messages','chat_message_reactions');")
+            # Deterministic read/cancel ordering: uncommitted read holds the shared row lock.
+            actor_a='00000000-0000-4000-8000-000000000001'
+            actor_b='00000000-0000-4000-8000-000000000002'
+            actor_c='00000000-0000-4000-8000-000000000003'
+            def auth(actor):
+                return "SET ROLE authenticated; SET request.jwt.claim.sub='"+actor+"'; "
+            cid_ab=sql(auth(actor_a)+"SELECT public.chat_start_conversation('10000000-0000-4000-8000-000000000001','"+actor_b+"');")
+            row=json.loads(sql(auth(actor_a)+"SELECT public.chat_send_message('"+cid_ab+"','read race','text',gen_random_uuid());"))
+            holder=subprocess.Popen(psql,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+            holder.stdin.write("BEGIN; "+auth(actor_b)+"DO $$ BEGIN PERFORM public.chat_mark_read('"+cid_ab+"',"+str(row['seq'])+"); END $$; SELECT 'read_locked'; SELECT pg_sleep(1); COMMIT;")
+            holder.stdin.close()
+            assert holder.stdout.readline().strip()=='read_locked'
+            sql(auth(actor_a)+"SELECT public._chat_rejected($q$SELECT public.chat_cancel_message('"+cid_ab+"','"+row['id']+"')$q$,'PCH01','concurrent committed read atomically prevents cancellation');")
+            holder.wait(timeout=10)
+            assert holder.returncode==0,holder.stderr.read()
+            sql("SELECT public._chat_assert((SELECT body='read race' AND cancelled_at IS NULL FROM public.chat_messages WHERE id='"+row['id']+"'),'read-winning race preserves message content');")
+            # Both opposite directions must take the same ordered conversation locks.
+            cid_ac=sql(auth(actor_a)+"SELECT public.chat_start_conversation('10000000-0000-4000-8000-000000000001','"+actor_c+"');")
+            row_ab=json.loads(sql(auth(actor_a)+"SELECT public.chat_send_message('"+cid_ab+"','forward race AB','text',gen_random_uuid());"))
+            row_ac=json.loads(sql(auth(actor_a)+"SELECT public.chat_send_message('"+cid_ac+"','forward race AC','text',gen_random_uuid());"))
+            forwards=[]
+            for conversation,message,peer in [(cid_ab,row_ab['id'],actor_c),(cid_ac,row_ac['id'],actor_b)]:
+                proc=subprocess.Popen(psql,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+                proc.stdin.write(auth(actor_a)+"SELECT public.chat_forward_message('"+conversation+"','"+message+"','"+peer+"',gen_random_uuid());")
+                proc.stdin.close();forwards.append(proc)
+            for proc in forwards:
+                proc.wait(timeout=10)
+                assert proc.returncode==0,proc.stderr.read()
+            print('PASS: opposite concurrent forwards do not deadlock')
+            print('PASS: incremental interactions preserve all non-Chat functions and policies')
         print('PASS: isolated Chat SQL suite')
     finally:
         if started:

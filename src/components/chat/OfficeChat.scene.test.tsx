@@ -198,7 +198,21 @@ it("avatar's real interaction menu opens Chat without replacing the scene or its
       },
     ],
     start: vi.fn(async () => "c"),
-    history: async () => ({ messages: [], hasMore: false }),
+    history: async () => ({
+      messages: [
+        {
+          id: "scene-message",
+          conversation_id: "c",
+          sender_id: io.uid,
+          body: "Mensagem fixture",
+          message_type: "text",
+          seq: 1,
+          created_at: "2026-10-15T10:00:00Z",
+        },
+      ],
+      hasMore: false,
+    }),
+    supportsInteractions: () => true,
     send: vi.fn(),
     read: async () => {},
   };
@@ -257,6 +271,20 @@ it("avatar's real interaction menu opens Chat without replacing the scene or its
   dragPointer("pointermove", 820, 120);
   dragPointer("pointerup", 820, 120);
   expect(parseFloat(panelElement.style.left)).toBe(beforeLeft - 80);
+  const optionEvent = new MouseEvent("pointerdown", {
+    bubbles: true,
+    cancelable: true,
+    button: 0,
+    ctrlKey: false,
+  });
+  fireEvent(screen.getByLabelText("Opções da mensagem 1"), optionEvent);
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Informações" }));
+  const info = await screen.findByRole("dialog", { name: "Informações da mensagem" });
+  expect(document.querySelector("[data-office-topbar]")?.closest('[tabindex="0"]')).toBe(scene);
+  fireEvent.keyDown(info, { key: "Escape" });
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Informações da mensagem" })).toBeNull(),
+  );
   expect(api.start).toHaveBeenCalledWith(ws, io.peer);
   expect(document.querySelector("[data-office-topbar]")?.closest('[tabindex="0"]')).toBe(scene);
   fireEvent.click(screen.getByLabelText("Fechar mensagens"));

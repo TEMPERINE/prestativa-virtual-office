@@ -113,9 +113,11 @@ export function ChatPanel({
                   {conversation.peer_name}
                 </span>
                 <span className="mt-1 block truncate text-[11px] text-muted-foreground">
-                  {conversation.last_type === "sticker"
-                    ? `Sticker · ${findChatSticker(conversation.last_body ?? "")?.label ?? ""}`
-                    : (conversation.last_body ?? "Comece uma conversa")}
+                  {conversation.last_cancelled_at
+                    ? "Mensagem cancelada"
+                    : conversation.last_type === "sticker"
+                      ? `Sticker · ${findChatSticker(conversation.last_body ?? "")?.label ?? ""}`
+                      : (conversation.last_body ?? "Comece uma conversa")}
                 </span>
               </span>
               {conversation.unread_count > 0 && (
@@ -136,6 +138,7 @@ export function ChatPanel({
             state={state}
             store={store}
             userId={userId}
+            portalHost={host}
           />
         ) : (
           <div className="hidden flex-1 flex-col items-center justify-center gap-3 px-8 text-center sm:flex">
