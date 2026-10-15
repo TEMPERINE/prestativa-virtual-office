@@ -4,8 +4,19 @@ export const CHAT_PAGE_SIZE = 40;
 export const CHAT_MAX_LENGTH = 4000;
 export type ChatMessageType = "text" | "sticker";
 export type ChatMessage = Database["public"]["Tables"]["chat_messages"]["Row"];
-export type ChatConversation =
+type ChatConversationRow =
   Database["public"]["Functions"]["chat_list_conversations"]["Returns"][number];
+// Generated RPC types omit nullability; these columns are null for empty conversations/profiles.
+export type ChatConversation = Omit<
+  ChatConversationRow,
+  "last_message_at" | "last_body" | "last_type" | "last_sender_id" | "peer_sprite_id"
+> & {
+  last_message_at: string | null;
+  last_body: string | null;
+  last_type: string | null;
+  last_sender_id: string | null;
+  peer_sprite_id: string | null;
+};
 export type ChatPage = { messages: ChatMessage[]; hasMore: boolean };
 export type ChatStatus = "connecting" | "online" | "offline";
 
