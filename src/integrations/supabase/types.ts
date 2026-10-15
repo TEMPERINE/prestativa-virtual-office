@@ -38,6 +38,91 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_conversations: {
+        Row: {
+          created_at: string
+          id: string
+          last_message_at: string | null
+          last_message_seq: number
+          participant_a: string
+          participant_a_read_seq: number
+          participant_b: string
+          participant_b_read_seq: number
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_message_at?: string | null
+          last_message_seq?: number
+          participant_a: string
+          participant_a_read_seq?: number
+          participant_b: string
+          participant_b_read_seq?: number
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_message_at?: string | null
+          last_message_seq?: number
+          participant_a?: string
+          participant_a_read_seq?: number
+          participant_b?: string
+          participant_b_read_seq?: number
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_conversations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_messages: {
+        Row: {
+          body: string
+          conversation_id: string
+          created_at: string
+          id: string
+          message_type: string
+          sender_id: string
+          seq: number
+        }
+        Insert: {
+          body: string
+          conversation_id: string
+          created_at?: string
+          id: string
+          message_type: string
+          sender_id: string
+          seq: number
+        }
+        Update: {
+          body?: string
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          message_type?: string
+          sender_id?: string
+          seq?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "chat_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       custom_props: {
         Row: {
           aspect_ratio: number
@@ -1041,6 +1126,61 @@ export type Database = {
       can_record_meeting: {
         Args: { _user_id: string; _workspace_id: string }
         Returns: boolean
+      }
+      chat_can_access_conversation: { Args: { cid: string }; Returns: boolean }
+      chat_list_conversations: {
+        Args: { ws: string }
+        Returns: {
+          created_at: string
+          id: string
+          last_body: string
+          last_message_at: string
+          last_message_seq: number
+          last_sender_id: string
+          last_type: string
+          participant_a: string
+          participant_b: string
+          peer_color: string
+          peer_id: string
+          peer_name: string
+          peer_sprite_id: string
+          read_seq: number
+          unread_count: number
+          workspace_id: string
+        }[]
+      }
+      chat_lock_conversation: {
+        Args: { cid: string }
+        Returns: {
+          created_at: string
+          id: string
+          last_message_at: string | null
+          last_message_seq: number
+          participant_a: string
+          participant_a_read_seq: number
+          participant_b: string
+          participant_b_read_seq: number
+          updated_at: string
+          workspace_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "chat_conversations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      chat_mark_read: {
+        Args: { cid: string; through_seq: number }
+        Returns: undefined
+      }
+      chat_send_message: {
+        Args: { cid: string; content: string; kind: string; message_id: string }
+        Returns: Json
+      }
+      chat_start_conversation: {
+        Args: { peer: string; ws: string }
+        Returns: string
       }
       claim_office_session: {
         Args: { _session_id: string; _workspace_id: string }
