@@ -61,7 +61,7 @@ Manifesto final: [superadmin-rollout.md](../../security/superadmin-rollout.md), 
 - [x] Guard central consulta platform_is_superadmin por requisição antes do client service-role; admin/master negados.
 - [x] Contas/espaços/skins/AI e painéis reconhecem Superadmin; RPCs de membership/perfil/owner e exclusão protegida.
 - [x] Transferir propriedade explícito com confirmação; retirada do caminho owner por convite/criação de conta.
-- [x] Handlers globais mapas/save points/props + emissão signup invite; operações locais mantidas; falhas de transporte tratadas.
+- [x] Handlers globais mapas/save points/props; operações locais mantidas; falhas de transporte tratadas.
 - [x] Gates de gravação/UI/tipos adaptados; mecânica RTC/RoomManager/Presence/Egress/Desktop preservada.
 - [ ] Comparar tipos com geração oficial e homologar painéis/overlays na composição real, inclusive sem membership nem labels antigas.
 
@@ -83,3 +83,5 @@ Manifesto final: [superadmin-rollout.md](../../security/superadmin-rollout.md), 
 - [ ] Rollback/recuperação conforme manifesto; nunca reabrir policy insegura.
 
 Esta tarefa encerra em implementação local e apresentação; nenhuma etapa de aplicação/publicação é autorizada pelo plano.
+
+Reconciliação pós-bootstrap: fases 1–3 aplicadas pelo Lovable; histórico Drizzle preservado. Signup removido historicamente foi retirado do pacote. Continuação vigente em [foundation reconciliation](2026-10-14-foundation-reconciliation.md), sem execução real autorizada.

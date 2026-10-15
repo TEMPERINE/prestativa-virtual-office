@@ -1,6 +1,8 @@
 # Roteiro operacional — Superadmin, fases 1, 2 e 3
 
-**Estado: preparado para revisão; execução ainda não autorizada.** Não executar nenhum bloco ao receber este roteiro. O pacote aprovado de SQL é o commit `c2cacabe85d50e93dff5f81cb237bf51e9c3a813`, branch `codex/workspace-membership-hardening`. Nenhum SQL deste roteiro foi executado nesta preparação.
+**Registro histórico concluído:** o responsável confirmou aplicação das fases 1–3 pelo executor Lovable (Drizzle 0000–0002), counts 1/1/1 na mesma conta, bootstrapped=true, um bootstrap, zero recoveries e fingerprints legados intactos. Não repetir estas fases. A transformação do executor alterou quatro comentários/corpos e omitiu quatro ACLs privadas; o contrato estrito abaixo só ficará integralmente reconciliado após a nova etapa [foundation reconciliation](foundation-reconciliation-runbook.md), ainda staged/NÃO aplicada. Os SELECTs/SQLs originais abaixo permanecem como roteiro histórico aprovado, não como autorização nova.
+
+**Estado original do roteiro, anterior à execução: preparado para revisão; execução ainda não autorizada.** Não executar nenhum bloco ao receber este roteiro. O pacote aprovado de SQL é o commit `c2cacabe85d50e93dff5f81cb237bf51e9c3a813`, branch `codex/workspace-membership-hardening`. Nenhum SQL deste roteiro foi executado na preparação original; a conclusão posterior reportada pelo responsável está registrada acima.
 
 Use o SQL Editor conectado ao banco do Prestativa Office, em sessão administrativa confiável `postgres`. Se estiver usando o chat do Lovable, solicite a execução de exatamente um arquivo/bloco por vez, com devolução do resultado completo, sem alterações extras nem criação/aplicação automática de migrations. A primeira consulta precisa confirmar a identidade/permissão do executor; se o meio não permite garantir SQL integral, transação e commit, pare e use o SQL Editor. Não enviar chaves, tokens, UUIDs ou e-mails no chat.
 

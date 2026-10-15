@@ -1,8 +1,10 @@
 # Superadmin: pacote executável e gates de aplicação
 
-Preparado em 14/10/2026 na branch `codex/workspace-membership-hardening` e **enviado ao GitHub no commit `c2cacabe85d50e93dff5f81cb237bf51e9c3a813`**. Não aplicado no banco real, mergeado ou publicado como aplicação. A autorização atual cobre somente a preparação da execução controlada das fases 1, 2 e 3; executar qualquer etapa no banco real depende de nova autorização explícita.
+Estado confirmado pelo responsável: **fases 1–3 aplicadas no banco real pelo Lovable**, com um admin, master e Superadmin na mesma conta, bootstrapped=true, um bootstrap, zero recoveries e fingerprints legados intactos. Esta atualização é preparação local: nenhum SQL remoto, merge ou publicação.
 
-Roteiro operacional dessas três fases: [superadmin-phases-1-3-runbook.md](superadmin-phases-1-3-runbook.md).
+Fonte canônica revisada: `supabase/staged-migrations`. Drizzle `0000–0002`, snapshots e journal são **histórico imutável de execução**; não editar/reaplicar para corrigir divergências. As transformações do executor deixaram quatro corpos diferentes só em comentários e PUBLIC EXECUTE herdado nos quatro helpers privados. A nova reconciliação staged está **NÃO aplicada**, antes da fase 4. Fases 4–6 continuam pendentes.
+
+Roteiro de 1–3: [registro histórico](superadmin-phases-1-3-runbook.md). Próxima etapa, dependente de autorização: [foundation reconciliation](foundation-reconciliation-runbook.md), com SQL completo, SELECTs antes/depois e rollback.
 
 ## Arquivos finais e ordem
 
@@ -11,13 +13,14 @@ Roteiro operacional dessas três fases: [superadmin-phases-1-3-runbook.md](super
 | 1 | [20261014120000_superadmin_role.sql](../../supabase/staged-migrations/20261014120000_superadmin_role.sql) | Adiciona `superadmin` ao enum `app_role`, sem atribuições. Commit separado antes do uso do valor. |
 | 2 | [20261014120100_superadmin_foundation_and_rpcs.sql](../../supabase/staged-migrations/20261014120100_superadmin_foundation_and_rpcs.sql) | Estado/auditoria privados, singleton, proteções do titular, bootstrap/recuperação, helpers privados, RPCs administrativas e gates. Não retira overrides legados. |
 | 3 | [20261014120200_superadmin_bootstrap.sql](../../supabase/staged-migrations/20261014120200_superadmin_bootstrap.sql) | Atribui somente à única interseção ativa `admin + master`, revalidando counts 1/1/1. Mantém admin/master. Não contém identidade pessoal. |
+| R | [20261014120230_foundation_reconciliation.sql](../../supabase/staged-migrations/20261014120230_foundation_reconciliation.sql) | Ainda NÃO aplicada. Reconcilia quatro ACLs privadas e quatro comentários/corpos conhecidos; não altera dados, roles, policies ou regras funcionais. |
 | **Gate A** | Aplicação nova + homologação | Reconhecer Superadmin e validar acesso global sem membership/labels antigas. Confirmar sessão com `platform_acknowledge_superadmin_access()` e atestar SHA de 40 caracteres via `platform_authorize_cutover(text)`, service-only. |
 | 4 | [20261014120300_workspace_membership_hardening.sql](../../supabase/staged-migrations/20261014120300_workspace_membership_hardening.sql) | Fecha autoentrada/autopromoção, protege owner canônico, restringe convites a member e valida aceite. Retém overrides globais legados. |
 | 5 | [20261014120400_authorization_helpers_and_recording.sql](../../supabase/staged-migrations/20261014120400_authorization_helpers_and_recording.sql) | Restringe wrappers públicos/EXECUTE; atualiza perfil e capacidade de gravação; separa consulta de cliente de autorização interna. |
 | **Gate B** | Homologação após hardening | Validar operações globais e locais, convites, transferência, gravações e overlays reais. Reconfirmar titular/commit se houver recuperação ou alteração do aplicativo. |
 | 6 | [20261014120500_retire_legacy_global_overrides.sql](../../supabase/staged-migrations/20261014120500_retire_legacy_global_overrides.sql) | Remove equivalência administrativa global de admin/master nas policies/funções mapeadas. Exige fases 4/5 e gate válido. Aborta por policy residual, função desconhecida com literal admin/master ou divergência na allowlist de funções. |
 
-**As seis etapas estão em `supabase/staged-migrations`, fora da descoberta automática.** Não copiar/aplicar todas de uma vez. Cada arquivo deve ser incorporado/executado individualmente somente na etapa explicitamente autorizada e registrado pelo operador no histórico. 2–6 têm `BEGIN/COMMIT`; 1 é uma DDL aditiva que precisa de commit separado antes de usar o novo enum. Os arquivos históricos `docs/security/proposals/superadmin/01–06` e o draft antigo ficam superados; não executar junto deste pacote.
+**As seis fases e a reconciliação estão em `supabase/staged-migrations`, fora da descoberta automática.** Não copiar/aplicar todas de uma vez. Cada arquivo deve ser incorporado/executado individualmente somente na etapa explicitamente autorizada e registrado pelo operador no histórico. 2–6 e R têm `BEGIN/COMMIT`; 1 é uma DDL aditiva que precisa de commit separado antes de usar o novo enum. Os arquivos históricos `docs/security/proposals/superadmin/01–06` e o draft antigo ficam superados; não executar junto deste pacote.
 
 O Gate B é uma aprovação operacional adicional; o banco verifica os flags/atestação, mas não consegue comprovar que a interface foi homologada. Não executar a fase 6 apenas porque a chamada SQL aceita.
 
@@ -43,7 +46,7 @@ Bootstrap/recuperação/atestação: EXECUTE apenas service_role, além do owner
 
 **Triggers novos:** proteção de atribuição/conta/truncate Superadmin; proteção de `workspaces.owner_id`; proteção de membership owner canônico. Exclusão legítima do workspace ainda permite cascade. Helpers privados não têm USAGE/EXECUTE para clientes; policies RLS chamam wrappers públicos escopados, evitando falha de permissão ou recursão de RLS.
 
-`workspace_accept_invite` preserva email lock, expiração, usos, capacidade e token; exige member e emissor ainda autorizado. Locks workspace→convite seguem a ordem das mutações. `signup_invite_redeem` é preservado; emissão passa por `adminCreateSignupInvite` autenticado no servidor, sem novo formulário nesta tarefa.
+`workspace_accept_invite` preserva email lock, expiração, usos, capacidade e token; exige member e emissor ainda autorizado. Locks workspace→convite seguem a ordem das mutações. Signup removido historicamente está fora do escopo: não há tabela, emissão ou redeem a preservar/recriar neste rollout.
 
 ## Policies/grants substituídos
 
@@ -56,7 +59,6 @@ Bootstrap/recuperação/atestação: EXECUTE apenas service_role, além do owner
 | map_overrides/custom_props | Retira `Admin can manage ...`; policies de escrita ficam locais ou supervisor membro. Acesso global usa handlers protegidos. |
 | sprite_skins/storage.objects | Retira `Admin manages skins` e `Admin writes/updates/deletes sprite sheets`; leitura de catálogo global ou workspace acessível mantida; upload/administração pelo servidor. |
 | account_groups | Retira `Admins manage groups`; gestão passa pelo servidor. Leitura ampla `USING(true)` permanece como pendência separada. |
-| signup_invites | Retira `Admins manage signup invites` e grants cliente de escrita; emissão protegida e redeem preservados. |
 | map_save_points | Remove master dos reads/create/delete; preserva leitura de membro e escrita local admin/owner. |
 | rtc_events | `Admins read workspace rtc events` passa a admin local; inserts/reads próprios preservados. Sem mudança de runtime RTC. |
 | meeting_participants | Policy usa helper atualizado, sem override global admin/master; participante/destinatário/local admin mantêm regras próprias. |
@@ -64,6 +66,8 @@ Bootstrap/recuperação/atestação: EXECUTE apenas service_role, além do owner
 O SQL completo de cada policy está nos arquivos acima. Policies inesperadas de membership ou overrides globais residuais abortam a transação para revisão explícita.
 
 ## Gate de funções da fase 6
+
+Um gate independente verifica EXECUTE efetivo de PUBLIC/anon/authenticated/service_role em **todas** as rotinas privadas, inclusive novas e sem literais legados. Schema sem USAGE não dispensa essa checagem.
 
 Além de `pg_policies`, o gate inventaria `pg_proc` com `pg_get_functiondef`, incluindo funções/procedures em public, platform_private e outros schemas de aplicação. Exclui schemas de sistema e não passa aggregates a pg_get_functiondef. É uma verificação textual conservadora: qualquer literal exato admin/master, com aspas simples ou dollar quoting, exige revisão. Menção não relacionada a autorização também pode bloquear, deliberadamente, para análise humana.
 
@@ -94,7 +98,7 @@ Gravações mudam apenas gates de autorização global e enum de capacidade; Egr
 ## Rollback
 
 1. **Antes de hardening:** interromper rollout; labels/policies legadas continuam. Manter enum/foundation/proteções. Não executar bootstrap outra vez para recuperar conta: usar `platform_recover_superadmin` por canal privado service-only.
-2. **Falha de SQL:** 2–6 têm transação; erro reverte integralmente a etapa que falhou, incluindo flags/grants. Etapas anteriores permanecem. O enum em 1 é aditivo; não tentar remover label usada.
+2. **Falha de SQL:** 2–6 e R têm transação; erro reverte integralmente a etapa que falhou, incluindo flags/grants. Etapas anteriores permanecem. O enum em 1 é aditivo; não tentar remover label usada.
 3. **Falha na fase 5 ou 6:** parar, manter fases anteriores e aplicativo compatível com as RPCs; correção para frente. Não presumir rollback conjunto de fases separadas.
 4. **Após corte:** retornar somente a commit do aplicativo que reconhece Superadmin; manter hardening. Nunca restaurar self-join, convites privilegiados ou override automático de admin/master.
 5. **Titular inacessível:** recuperação service-only valida/bloqueia alvo ativo e troca singleton atomicamente. Antes do corte transfere compatibilidade legada; após corte atribui somente Superadmin. Limpa confirmação/atestação, exigindo nova homologação. Identidade fornecida privadamente na execução, nunca no Git.
@@ -103,12 +107,16 @@ Um rollback SQL que restaure policies inseguras não faz parte deste pacote. Bac
 
 ## Testes e homologação pendente
 
-Comando SQL: `PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_superadmin_proposals.py --migrations`. PostgreSQL 16 descartável, sem rede/porta; fixtures fictícias. Cobre interseção única e preservação legada, ausência de promoção automática, singleton, proteção do titular, recovery antes/depois, concorrência, gates/rollback/idempotência, hardening, convites, transferência atômica, helper privacy e RLS **positivo** com authenticated.
+Comandos SQL: `PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_foundation_reconciliation.py` e `PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_superadmin_proposals.py --migrations`. PostgreSQL 16 descartável, sem rede/porta; fixtures fictícias. Cobre interseção única e preservação legada, ausência de promoção automática, singleton, proteção do titular, recovery antes/depois, concorrência, gates/rollback/idempotência, hardening, convites, transferência atômica, helper privacy e RLS **positivo** com authenticated.
 
 Aplicativo: `npm test`, `npx tsc --noEmit`, `npm run build`. Testes executam guards/handlers e composição do painel com Superadmin sem labels antigas; admin/master e falha do banco não alcançam o client privilegiado. Regressões de mapa/recording e erros do transporte também cobertos.
 
-Isso comprova o comportamento do código com fixtures; **não comprova que a conta real já recebeu Superadmin**. Antes de aplicar/cortar: REST/JWT reais, Auth admin API, painéis/overlays na composição real, operações globais sem membership, regras locais, gravação e ensaio de recovery. Memberships órfãs após exclusão Auth são limitação histórica fora deste pacote; leitura ampla account_groups continua pendente. Nada autoriza aplicação/publicação automática.
+Os testes comprovam contratos com fixtures; a conclusão real do bootstrap vem da confirmação do responsável, não destes testes. Homologação real da aplicação permanece pendente. Antes de aplicar/cortar: REST/JWT reais, Auth admin API, painéis/overlays na composição real, operações globais sem membership, regras locais, gravação e ensaio de recovery. Memberships órfãs após exclusão Auth são limitação histórica fora deste pacote; leitura ampla account_groups continua pendente. Nada autoriza aplicação/publicação automática.
 
-Verificação local concluída em 14/10/2026: **133 asserções SQL no pacote anterior**, dois cenários concorrentes, **643 testes Vitest em 57 arquivos**, typecheck e build aprovados. A revisão independente encontrou duas regressões (helpers privados em RLS e rejeições do transporte); ambas foram reproduzidas e corrigidas com testes. O build mantém avisos de dependências, sem falha de compilação.
+## Reconciliação: dependências e escopo retirado
 
-Atualização do gate/staging (14/10/2026): as seis etapas saíram da descoberta automática. A suite executável passou **142 asserções SQL**, incluindo nove casos novos de bloqueio e rollback por função/grants inesperados; referência histórica e suite de membership também verificadas separadamente. Nesta atualização, **643 testes Vitest em 57 arquivos**, typecheck e build passaram novamente. A referência histórica passou 90 asserções e a suite de membership passou 21, todas em bancos descartáveis.
+`adminCreateSignupInvite` não tinha consumidor de produção; handler, cast `as any`, dois testes de emissão e fixtures que recriavam signup foram retirados. A fase 6 não referencia `public.signup_invites`. O schema removido historicamente permanece ausente; eventual retorno exige feature separada. Propostas antigas permanecem referências históricas superadas, sem execução no harness atual.
+
+Drizzle config/schema/histórico e tooling permanecem. Versões já resolvidas foram fixadas (kit 0.31.11, ORM 0.45.4, postgres 3.4.9) e os locks Bun/npm alinhados. Nenhum import Drizzle/postgres foi adicionado ao runtime ou script de migration automática.
+
+Validação local desta atualização: **166 asserções SQL** na suite staged; **53 asserções + 10 rejeições esperadas** na reprodução Drizzle/reconciliação, inclusive SELECTs operacionais; **21 asserções** de membership; **641 testes Vitest em 57 arquivos** (dois testes obsoletos de signup retirados); typecheck e build aprovados. `npm ci` instalou 638 pacotes com o lock atualizado. Bun 1.3.10 aceitou frozen-lockfile/lockfile-only sem alterar o lock. O lock npm anterior também estava atrasado em relação a TanStack/config Lovable e outras dependências já declaradas; a regeneração refletiu essas declarações existentes, sem mudar suas versões no package.json. Avisos de depreciação/chunks do build permanecem fora do escopo. Nenhuma validação local autoriza aplicar R ou fases posteriores.

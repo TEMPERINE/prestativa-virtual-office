@@ -1,6 +1,6 @@
 # Superadmin — desenho implementado, aguardando homologação
 
-**Estado:** migrations executáveis, RPCs, guards/UI e testes preparados localmente na branch `codex/workspace-membership-hardening`. Nenhum SQL executado no banco real; nenhum merge, push ou publicação nesta tarefa.
+**Estado:** fases 1–3 concluídas no banco real conforme confirmação do responsável. Reconciliação staged NÃO aplicada; fases 4–6 pendentes. Nenhum SQL real executado nesta atualização; nenhum merge/publicação.
 
 O manifesto vigente, com nomes finais, SQL completo por arquivo, gates de aplicação e rollback, está em [superadmin-rollout.md](superadmin-rollout.md). `docs/security/proposals/superadmin/01–06` e o draft de hardening são referências históricas: **não aplicar junto das migrations finais**.
 
@@ -27,7 +27,7 @@ A role owner deve concordar com `workspaces.owner_id`. Superadmin pode transferi
 
 ## Atribuição e proteção
 
-- As seis migrations estão staged, fora da descoberta automática. Infraestrutura e atribuição dependem de execução individual explicitamente autorizada.
+- As seis fases e a reconciliação estão staged, fora da descoberta automática. Infraestrutura e atribuição dependem de execução individual explicitamente autorizada.
 - `platform_bootstrap_superadmin()` é service-only, sem identidade por argumento. Confere counts 1/1/1, seleciona a única interseção admin+master ativa e atribui a label explícita. Mudança de inventário aborta. Preserva as labels legadas.
 - A interseção é critério apenas dessa inicialização, nunca autorização permanente. Outra conta admin+master não se torna Superadmin.
 - Índice parcial limita a uma atribuição de Superadmin, mesmo se o titular ficar inacessível. Recuperação troca essa atribuição em uma transação.
@@ -39,9 +39,9 @@ A role owner deve concordar com `workspaces.owner_id`. Superadmin pode transferi
 
 ## Migrations finais e ordem
 
-Consulte a tabela de seis arquivos em [superadmin-rollout.md](superadmin-rollout.md). Ordem: enum → foundation/RPCs → bootstrap privado → rollout/homologação da aplicação → confirmação do titular + atestação service-only do commit → memberships/convites → helpers/perfil/gravação → nova homologação → retirada dos overrides globais.
+Consulte a tabela de fases e reconciliação em [superadmin-rollout.md](superadmin-rollout.md). Ordem: enum → foundation/RPCs → bootstrap privado → reconciliação aprovada da foundation → rollout/homologação da aplicação → confirmação do titular + atestação service-only do commit → memberships/convites → helpers/perfil/gravação → nova homologação → retirada dos overrides globais.
 
-Todos os seis SQLs ficam em `supabase/staged-migrations`, fora da descoberta automática. Cada etapa posterior tem transação própria; erro reverte a etapa inteira, preservando as fases anteriores. O enum precisa de commit separado antes de seu uso.
+Todos os SQLs canônicos ficam em `supabase/staged-migrations`, fora da descoberta automática. Cada etapa posterior tem transação própria; erro reverte a etapa inteira, preservando as fases anteriores. O enum precisa de commit separado antes de seu uso.
 
 RPCs locais ficam desabilitadas até o hardening, pois antes disso a policy de autoentrada não comprovava a legitimidade do admin local. Não ampliar admin/master durante a janela legada. `platform_acknowledge_superadmin_access` confirma a sessão; `platform_authorize_cutover` registra a homologação do commit pelo operador. O gate mantém lock até COMMIT, impedindo recuperação concorrente durante a etapa. A fase final também inventaria funções por pg_proc/pg_get_functiondef e exige allowlist explícita por assinatura/corpo/configuração/EXECUTE; desconhecidas abortam sem reescrita.
 
@@ -67,7 +67,7 @@ Todas derivam o ator de `auth.uid()`. UUIDs target/owner/new_owner são alvos, n
 | `platform_assign_workspace_member(uuid,uuid,workspace_role,text) → void` | Role + perfil em uma transação |
 | `platform_update_workspace(uuid,text,smallint,uuid) → void` | Superadmin; metadados + transferência atômicos |
 
-Existentes alteradas: is_workspace_admin, is_workspace_member, has_role, current_user_email, workspace_accept_invite, workspace_members_guard_profile, can_read_meeting_participants, can_record_meeting. Wrappers públicos permitem ator próprio e membership de colegas do workspace já acessível; roles e capacidades de gravação não enumeram terceiros. PUBLIC/anon perdem EXECUTE; helpers privados continuam inacessíveis. Aceite mantém token, email lock, expiração, usos e capacidade; adiciona validação do emissor ainda autorizado, role member e lock workspace→convite. Convites privilegiados não promovem nesta fase; promoção é operação explícita do Superadmin. signup_invite_redeem permanece validando token e criando workspace + owner.
+Existentes alteradas: is_workspace_admin, is_workspace_member, has_role, current_user_email, workspace_accept_invite, workspace_members_guard_profile, can_read_meeting_participants, can_record_meeting. Wrappers públicos permitem ator próprio e membership de colegas do workspace já acessível; roles e capacidades de gravação não enumeram terceiros. PUBLIC/anon perdem EXECUTE; helpers privados continuam inacessíveis. Aceite mantém token, email lock, expiração, usos e capacidade; adiciona validação do emissor ainda autorizado, role member e lock workspace→convite. Convites privilegiados não promovem nesta fase; promoção é operação explícita do Superadmin. Signup removido historicamente permanece fora do escopo, sem recriação.
 
 ## Policies/grants afetados segundo o repo
 
@@ -76,7 +76,6 @@ Existentes alteradas: is_workspace_admin, is_workspace_member, has_role, current
 | workspace_members | Substituir Admin or self inserts member, Admin updates members, Self leaves workspace. INSERT só próprio owner canônico operacional; UPDATE revogado; DELETE só saída própria não canônica. SELECT permanece |
 | workspaces | Admin creates workspace exige owner_id=self; Admin or owner updates/deletes workspace perdem override global; trigger impede transferência direta |
 | workspace_invites | Retirar Admin creates invite / Admin deletes invite e grants de escrita cliente; criação/revogação por RPC, reads preservados |
-| signup_invites | Retirar Admins manage signup invites e grants de escrita cliente; emissão pelo servidor; redeem preservado |
 | map_overrides | Retirar Admin can manage map_overrides; Workspace admin upserts/updates/deletes map ficam locais ou supervisor membro |
 | custom_props | Retirar Admin can manage custom_props; Admin inserts/updates/deletes custom_props ficam locais ou supervisor membro |
 | sprite_skins | Retirar Admin manages skins e read cross-workspace por admin; catálogo global normal permanece |
@@ -95,7 +94,6 @@ Existentes alteradas: is_workspace_admin, is_workspace_member, has_role, current
 - `workspaces.new.tsx` + `src/lib/workspace/create.ts`: separar criação própria elegível da administração global. Superadmin sem labels antigas usa RPC e inicialização de mapa escopada; cópia cross-workspace usa handler global validado.
 - `src/components/office/OfficeScene.tsx`: gate isMasterAdmin hoje verifica admin; migrar só autorização visual, preservando Office persistente/overlay real.
 - `src/components/office/{MapEditor,MapSavePoints}.tsx` + `src/lib/map-overrides.ts`: disponibilizar handlers globais validados para leitura/edição sem membership. Operações/realtime locais continuam escopados.
-- `adminCreateSignupInvite` em accounts.functions.ts substitui emissão cliente por servidor autenticado; não há formulário de emissão neste repo. Validar eventuais clientes externos antes do corte.
 - `src/lib/meetings/recording.functions.ts` + `src/components/meetings/MeetingsPanel.tsx`: trocar somente gates globais admin/master. Hoje administradores globais podem acessar gravação pelo servidor sem membership; preservar essa capacidade para Superadmin. Participantes/destinatários normais mantêm membership. Sem mudança de Egress/R2/mídia.
 - `src/lib/meetings/record-permission.ts`: adicionar superadmin à capacidade membership-bound em paridade com SQL. Sem auto-join RTC.
 - `src/integrations/supabase/types.ts`: contratos locais de enum/RPCs atualizados; confrontar com geração oficial após aplicação em homologação.
@@ -105,8 +103,8 @@ Existentes alteradas: is_workspace_admin, is_workspace_member, has_role, current
 
 O procedimento vigente está em [superadmin-rollout.md](superadmin-rollout.md): transação por etapa, manutenção de infraestrutura aditiva, recuperação service-only e retorno somente a aplicativo compatível com Superadmin. Não remover label do enum nem restaurar autoentrada ou equivalência admin/master.
 
-`PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_superadmin_proposals.py --migrations` testa os arquivos finais em PostgreSQL 16 descartável, sem rede/porta/dados reais. O modo sem flag mantém a referência histórica dos SQLs propostos. Policies e RPCs legadas vêm do repositório; Auth/Storage/REST são limites de fixtures.
+`PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_superadmin_proposals.py --migrations` testa os arquivos finais em PostgreSQL 16 descartável, sem rede/porta/dados reais. O modo sem flag também usa o pacote staged; propostas históricas não são executadas. `scripts/test_foundation_reconciliation.py` reproduz o histórico Drizzle aplicado em banco descartável. Policies e RPCs legadas vêm do repositório; Auth/Storage/REST são limites de fixtures.
 
 A suite cobre bootstrap exclusivo, singleton, recuperação/concurrência, gates e idempotência; autoentrada/autopromoção negadas, owner_id alheio negado, criação válida, convite válido/inválido/expirado/revogado/privilegiado; local vs global; transações administrativas; integridade de owner; helpers/grants privados; RLS positivo em usuário autenticado após corte. Vitest executa handlers/UI reais com adaptadores de teste nas fronteiras.
 
-Antes de aplicar faltam REST/JWT e Auth admin API em Supabase de homologação; geração oficial dos tipos; exercício de painéis e overlays na composição real, inclusive Superadmin sem membership nem labels antigas; regressão do Office/reuniões e ensaio privado de recuperação. SQL isolado não comprova essas condições nem que a conta real já possui Superadmin.
+Antes de aplicar faltam REST/JWT e Auth admin API em Supabase de homologação; geração oficial dos tipos; exercício de painéis e overlays na composição real, inclusive Superadmin sem membership nem labels antigas; regressão do Office/reuniões e ensaio privado de recuperação. SQL isolado não comprova essas condições nem substitui a confirmação operacional do bootstrap real.

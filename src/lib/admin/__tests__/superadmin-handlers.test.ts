@@ -29,7 +29,7 @@ vi.mock("@/integrations/supabase/client.server", () => {
     from: query,
   } };
 });
-import { adminListAccounts, adminCreateSignupInvite } from "../accounts.functions";
+import { adminListAccounts } from "../accounts.functions";
 import { adminListWorkspacesFull } from "../workspaces.functions";
 import { adminListSkins } from "../sprites.functions";
 import { adminReadWorkspaceMap, adminWriteWorkspaceMap, adminManageSavePoints, adminManageCustomProps } from "../workspace-resources.functions";
@@ -73,13 +73,5 @@ describe("global server handlers", () => {
     const result = await (adminWriteWorkspaceMap as any)({ context: context(["superadmin"]), data: { workspaceId, map } });
     expect(state.mapWritten).toMatchObject({ workspace_id: workspaceId, data: map, updated_by: "fixture-actor" });
     expect(result.version).toBe(18);
-  });
-  it("legacy admin cannot issue signup invites through the privileged server", async () => {
-    await expect((adminCreateSignupInvite as any)({ context: context(["admin", "master"]), data: { plan: "essencial", tier: 1 } })).rejects.toThrow("forbidden");
-    expect(state.serviceCalls).toBe(0);
-  });
-  it("explicit Superadmin can issue signup invites without a workspace membership", async () => {
-    await expect((adminCreateSignupInvite as any)({ context: context(["superadmin"]), data: { plan: "essencial", tier: 1 } })).resolves.toBeDefined();
-    expect(state.serviceCalls).toBeGreaterThan(0);
   });
 });

@@ -119,16 +119,9 @@ SELECT public._test_rejected($$SELECT public.platform_transfer_workspace_owner('
 RESET ROLE;
 SELECT public._test_assert((SELECT owner_id='00000000-0000-4000-8000-000000000003' FROM public.workspaces WHERE id='10000000-0000-4000-8000-000000000001'),'failed transfer leaves previous owner intact');
 
--- Validated signup remains available to a normal account despite admin cutover.
-INSERT INTO public.signup_invites(token,plan,tier,created_by) VALUES('signup-valid','premium',3,'00000000-0000-4000-8000-000000000001');
-SET ROLE authenticated;
-SET request.jwt.claim.sub='00000000-0000-4000-8000-000000000005';
-SELECT public.signup_invite_redeem('signup-valid','Fixture signup');
-SELECT public._test_assert(EXISTS (SELECT 1 FROM public.workspaces w JOIN public.workspace_members m ON m.workspace_id=w.id
- WHERE w.name='Fixture signup' AND w.owner_id=auth.uid() AND m.user_id=auth.uid() AND m.role='owner'),
- 'signup RPC creates legitimate workspace and owner without client admin role');
-SELECT public._test_rejected($$INSERT INTO public.signup_invites(token,created_by) VALUES('forged',auth.uid())$$,'42501','client cannot create signup grant directly');
-RESET ROLE;
+-- The historical signup flow was removed; rollout must not recreate it.
+SELECT public._test_assert(to_regclass('public.signup_invites') IS NULL
+ AND to_regprocedure('public.signup_invite_redeem(text,text)') IS NULL,'obsolete signup schema remains absent');
 SET ROLE service_role;
 SELECT public._test_assert((public.platform_recover_superadmin('00000000-0000-4000-8000-000000000007')->>'recovered')::boolean,'service recovery remains available after retirement');
 RESET ROLE;

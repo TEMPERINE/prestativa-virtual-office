@@ -15,30 +15,6 @@ import { normalizeMemberProfile, type MemberProfile } from "@/lib/meetings/recor
 
 type Plan = "essencial" | "pro" | "premium";
 
-/** Replaces direct privileged signup_invites INSERT after legacy retirement. */
-export const adminCreateSignupInvite = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((input: { plan: Plan; tier: 1 | 2 | 3; email?: string | null; workspaceName?: string | null }) => {
-    if (!["essencial", "pro", "premium"].includes(input.plan) || ![1, 2, 3].includes(input.tier)) {
-      throw new Error("Plano ou nível inválido.");
-    }
-    if (input.email && !/^\S+@\S+\.\S+$/.test(input.email)) throw new Error("Email inválido.");
-    return input;
-  })
-  .handler(async ({ context, data }) => {
-    await requireSuperadmin(context);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    // signup_invites is not in the generated schema yet; untyped until its migration lands.
-    const { data: invite, error } = await (supabaseAdmin as any).from("signup_invites").insert({
-      plan: data.plan, tier: data.tier, email: data.email?.trim() || null,
-      workspace_name_suggestion: data.workspaceName?.trim() || null,
-      created_by: context.userId,
-    }).select("id, token, expires_at").single();
-    if (error) throw new Error("Não foi possível criar o convite de cadastro.");
-    return { invite };
-  });
-
-
 export const adminListAccounts = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {

@@ -54,9 +54,6 @@ DROP POLICY IF EXISTS "Admin deletes sprite sheets" ON storage.objects;
 DROP POLICY IF EXISTS "Admins manage groups" ON public.account_groups;
 -- Deliberately leave the broad group-name read as a separate issue, not a
 -- source of administrative writes. This migration doesn't resolve that audit.
-DROP POLICY IF EXISTS "Admins manage signup invites" ON public.signup_invites;
-REVOKE INSERT,UPDATE,DELETE ON public.signup_invites FROM authenticated;
--- signup_invite_redeem still consumes validated tokens under its trusted owner.
 
 ALTER POLICY "members read save points" ON public.map_save_points USING (public.is_workspace_member(workspace_id,auth.uid()));
 ALTER POLICY "admins create save points" ON public.map_save_points WITH CHECK (
@@ -91,6 +88,31 @@ BEGIN
     RAISE EXCEPTION 'unreviewed legacy global policy remains; cutover aborted';
   END IF;
 END $$;
+-- Independent ACL gate: inspect ALL private helpers, even if the schema
+-- lacks USAGE or the function has no admin/master literal. Unknown grants abort.
+DO $private_acl$
+DECLARE unexpected text;
+BEGIN
+  SELECT string_agg(format('%I.%I(%s)',n.nspname,p.proname,
+    oidvectortypes(p.proargtypes)),', ' ORDER BY p.oid) INTO unexpected
+  FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+  WHERE n.nspname='platform_private' AND p.prokind IN ('f','p') AND (
+    has_function_privilege('anon',p.oid,'EXECUTE')
+    OR has_function_privilege('authenticated',p.oid,'EXECUTE')
+    OR has_function_privilege('service_role',p.oid,'EXECUTE')
+    OR EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
+      WHERE a.grantee=0 AND a.privilege_type='EXECUTE'));
+  IF unexpected IS NOT NULL THEN
+    RAISE EXCEPTION 'unexpected private EXECUTE; cutover aborted'
+      USING ERRCODE='23514',DETAIL=unexpected;
+  END IF;
+  IF has_schema_privilege('anon','platform_private','USAGE')
+    OR has_schema_privilege('authenticated','platform_private','USAGE')
+    OR has_schema_privilege('service_role','platform_private','USAGE') THEN
+    RAISE EXCEPTION 'private schema USAGE remains; cutover aborted';
+  END IF;
+END $private_acl$;
+
 -- Conservative function inventory: any exact legacy role literal is reviewed,
 -- even in a private/custom schema or a routine without client EXECUTE. It also
 -- catches dollar-quoted role literals. System schemas are excluded; aggregates

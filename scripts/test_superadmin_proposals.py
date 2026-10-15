@@ -11,7 +11,6 @@ import subprocess
 import time
 from test_workspace_membership import ROOT, IMAGE, bootstrap, source, function
 
-PROPOSALS = ROOT / "docs/security/proposals/superadmin"
 TESTS = ROOT / "supabase/tests/superadmin"
 
 
@@ -58,8 +57,6 @@ def additional_fixtures():
         global_admin[global_admin.index("-- map_overrides"):],
         source("20260609085333"),
         source("20260616132723").split("-- Seed:")[0],
-        source("20260609001959").split("-- 2) Relax")[0],
-        function(source("20260609001959"), "signup_invite_redeem"),
         source("20260930175640"),
         rtc[rtc.index("CREATE TABLE IF NOT EXISTS public.rtc_events"):rtc.index("-- 5/6.")],
         source("20261001000457"),
@@ -70,15 +67,14 @@ def additional_fixtures():
 
 def run():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--constraints-red", action="store_true", help="Prove structural guard regressions against approved older proposals")
-    parser.add_argument("--migrations", action="store_true", help="Exercise all six executable staged migrations, including discovery isolation and idempotence")
+    parser.add_argument("--migrations", action="store_true", default=True, help="Compatibility flag: the canonical staged suite is now the default")
     parser.add_argument("--helpers-red", action="store_true", help="Run helper privacy regression against old functions")
     parser.add_argument("--baseline", action="store_true", help="Confirm absent Superadmin on original schema")
     args = parser.parse_args()
     if args.migrations:
         names = ["superadmin_role", "superadmin_foundation_and_rpcs", "superadmin_bootstrap",
                  "workspace_membership_hardening", "authorization_helpers_and_recording",
-                 "retire_legacy_global_overrides"]
+                 "retire_legacy_global_overrides", "foundation_reconciliation"]
         for suffix in names:
             if list((ROOT / "supabase/migrations").glob("*" + suffix + ".sql")):
                 raise RuntimeError("Security migration must be outside automatic discovery: " + suffix)
@@ -201,10 +197,7 @@ def run():
         return paths[0].read_text()
 
     def cutover_sql():
-        if args.migrations:
-            return staged("workspace_membership_hardening")
-        return "BEGIN;\n" + (PROPOSALS / "04-membership-cutover.sql").read_text() + \
-            (PROPOSALS / "05-legacy-overrides-cutover.sql").read_text() + "\nCOMMIT;"
+        return staged("workspace_membership_hardening")
 
     def assert_cutover_abort(expected_message, label):
         result = subprocess.run(psql, input=cutover_sql(), text=True, capture_output=True)
@@ -232,12 +225,6 @@ def run():
         sql("INSERT INTO public.workspace_invites(workspace_id,email,token,role,invited_by) VALUES('10000000-0000-4000-8000-000000000001',NULL,'pending-test','admin','00000000-0000-4000-8000-000000000002');")
         assert_cutover_abort("pending privileged invites", "pending privileged invite aborts cutover")
         sql("DELETE FROM public.workspace_invites WHERE token='pending-test';")
-        if args.migrations:
-            return  # Final retirement has its own independent atomicity checks.
-        sql('CREATE POLICY "test residual global override" ON public.custom_props FOR SELECT TO authenticated USING (public.has_role(auth.uid(),\'admin\'));')
-        assert_cutover_abort("unreviewed legacy global policy remains", "failure in stage 05 rolls back stage 04 policies grants and activation")
-        sql('DROP POLICY "test residual global override" ON public.custom_props;')
-
     def function_cutover_failure_checks():
         previous_read_helper = scalar("SELECT md5(pg_get_functiondef('public.can_read_meeting_participants(uuid,uuid)'::regprocedure));")
         def rejects(label):
@@ -246,7 +233,6 @@ def run():
                 raise RuntimeError("Function inventory gate did not fail closed: " + label)
             sql("SELECT public._test_assert(NOT (SELECT retired FROM platform_private.transition WHERE singleton) "
                 "AND EXISTS (SELECT 1 FROM pg_policy WHERE polname='Admin can manage custom_props') "
-                "AND has_table_privilege('authenticated','public.signup_invites','INSERT') "
                 "AND md5(pg_get_functiondef('public.can_read_meeting_participants(uuid,uuid)'::regprocedure))='" + previous_read_helper + "', '" + label + "');")
 
         fixtures = [
@@ -257,6 +243,8 @@ def run():
         ]
         for signature, definition, label in fixtures:
             sql("CREATE FUNCTION " + signature + " RETURNS boolean " + definition + ";")
+            if signature.startswith("platform_private."):
+                sql("REVOKE EXECUTE ON FUNCTION " + signature + " FROM PUBLIC;")
             rejects(label)
             sql("DROP FUNCTION " + signature + ";")
 
@@ -284,6 +272,34 @@ def run():
         rejects("unsafe grants on allowlisted lifecycle function abort retirement")
         sql("REVOKE EXECUTE ON FUNCTION public.platform_recover_superadmin(uuid) FROM authenticated;")
 
+    def private_acl_failure_checks():
+        signatures = [
+            "platform_private.is_superadmin(uuid)",
+            "platform_private.has_role(uuid,public.app_role)",
+            "platform_private.is_workspace_member(uuid,uuid)",
+            "platform_private.is_workspace_admin(uuid,uuid)",
+            "platform_private.check_capacity(uuid,uuid)",
+            "platform_private.is_service_context()",
+        ]
+        original = scalar("SELECT md5(pg_get_functiondef('public.can_read_meeting_participants(uuid,uuid)'::regprocedure));")
+        for signature in signatures:
+            for role in ["PUBLIC", "anon", "authenticated", "service_role"]:
+                sql("GRANT EXECUTE ON FUNCTION " + signature + " TO " + role + ";")
+                result = subprocess.run(psql, input=staged("retire_legacy_global_overrides"), text=True, capture_output=True)
+                if result.returncode == 0 or "unexpected private EXECUTE" not in result.stderr:
+                    raise RuntimeError("Private ACL gate did not fail closed: " + signature + " / " + role)
+                sql("SELECT public._test_assert(NOT (SELECT retired FROM platform_private.transition WHERE singleton) "
+                    "AND EXISTS(SELECT 1 FROM pg_policy WHERE polname='Admin can manage custom_props') "
+                    "AND md5(pg_get_functiondef('public.can_read_meeting_participants(uuid,uuid)'::regprocedure))='" + original +
+                    "','private ACL drift aborts with rollback: " + signature + " / " + role + "');")
+                sql("REVOKE EXECUTE ON FUNCTION " + signature + " FROM " + role + ";")
+        # Future private routines are inventoried without names or role literals.
+        sql("CREATE FUNCTION platform_private.test_new_helper() RETURNS boolean LANGUAGE sql AS $$SELECT true$$;")
+        result = subprocess.run(psql, input=staged("retire_legacy_global_overrides"), text=True, capture_output=True)
+        if result.returncode == 0 or "unexpected private EXECUTE" not in result.stderr:
+            raise RuntimeError("New private helper escaped ACL inventory")
+        sql("DROP FUNCTION platform_private.test_new_helper(); SELECT public._test_assert(true,'future private helper default PUBLIC grant is caught');")
+
     started = False
     try:
         docker("run", "--detach", "--rm", "--network", "none", "--name", name,
@@ -306,9 +322,6 @@ def run():
                     sql(staged(suffix))
                 # Foundation rerun must not reset singleton, assignments or grants.
                 sql(staged("superadmin_foundation_and_rpcs"))
-            else:
-                for name_part in ["01-role.sql", "02-foundation.sql", "03-administration-rpcs.sql"]:
-                    sql((PROPOSALS / name_part).read_text())
         if args.helpers_red:
             sql((TESTS / "helpers.sql").read_text())
             return
@@ -316,9 +329,6 @@ def run():
         concurrency_checks()
         cutover_failure_checks()
         sql(cutover_sql())
-        if args.constraints_red:
-            sql((TESTS / "constraints.sql").read_text())
-            return
         if args.migrations:
             sql(cutover_sql())
             sql(staged("authorization_helpers_and_recording"))
@@ -332,16 +342,17 @@ def run():
             sql('CREATE POLICY "test residual global override" ON public.custom_props FOR SELECT TO authenticated USING (public.has_role(auth.uid(),\'admin\'));')
             result=subprocess.run(psql,input=staged("retire_legacy_global_overrides"),text=True,capture_output=True)
             if result.returncode==0 or "unreviewed legacy global policy remains" not in result.stderr:
-                raise RuntimeError("Final retirement did not fail closed")
+                raise RuntimeError("Final retirement did not fail closed: " + result.stderr)
             sql("SELECT public._test_assert(NOT (SELECT retired FROM platform_private.transition WHERE singleton) AND EXISTS (SELECT 1 FROM pg_policy WHERE polname='Admin can manage custom_props'),'failed final retirement rolls back all global policy removal');")
             sql('DROP POLICY "test residual global override" ON public.custom_props;')
+            private_acl_failure_checks()
             function_cutover_failure_checks()
             sql(staged("retire_legacy_global_overrides"))
             sql(staged("retire_legacy_global_overrides"))
             sql((TESTS / "local-policies.sql").read_text())
             sql((TESTS / "helpers.sql").read_text())
         sql((TESTS / "authorization.sql").read_text())
-        print("PASS: review-only Superadmin proposals PostgreSQL suite")
+        print("PASS: canonical staged Superadmin PostgreSQL suite")
     finally:
         if started:
             subprocess.run(["docker", "rm", "-f", name], check=True, stdout=subprocess.DEVNULL)
