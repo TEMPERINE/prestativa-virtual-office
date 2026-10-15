@@ -14,31 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      // Chat contracts prepared with the staged Office Chat MVP SQL.
-      chat_conversations: {
-        Row: {
-          id: string; workspace_id: string; participant_a: string; participant_b: string
-          created_at: string; updated_at: string; last_message_at: string | null
-          last_message_seq: number; participant_a_read_seq: number; participant_b_read_seq: number
-        }
-        Insert: {
-          id?: string; workspace_id: string; participant_a: string; participant_b: string
-          created_at?: string; updated_at?: string; last_message_at?: string | null
-          last_message_seq?: number; participant_a_read_seq?: number; participant_b_read_seq?: number
-        }
-        Update: {
-          id?: string; workspace_id?: string; participant_a?: string; participant_b?: string
-          created_at?: string; updated_at?: string; last_message_at?: string | null
-          last_message_seq?: number; participant_a_read_seq?: number; participant_b_read_seq?: number
-        }
-        Relationships: [{ foreignKeyName: "chat_conversations_workspace_id_fkey"; columns: ["workspace_id"]; isOneToOne: false; referencedRelation: "workspaces"; referencedColumns: ["id"] }]
-      }
-      chat_messages: {
-        Row: { id: string; conversation_id: string; sender_id: string; body: string; message_type: string; seq: number; created_at: string }
-        Insert: { id: string; conversation_id: string; sender_id: string; body: string; message_type: string; seq: number; created_at?: string }
-        Update: { id?: string; conversation_id?: string; sender_id?: string; body?: string; message_type?: string; seq?: number; created_at?: string }
-        Relationships: [{ foreignKeyName: "chat_messages_conversation_id_fkey"; columns: ["conversation_id"]; isOneToOne: false; referencedRelation: "chat_conversations"; referencedColumns: ["id"] }]
-      }
       account_groups: {
         Row: {
           created_at: string
@@ -1048,19 +1023,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      chat_can_access_conversation: { Args: { cid: string }; Returns: boolean }
-      chat_start_conversation: { Args: { ws: string; peer: string }; Returns: string }
-      chat_send_message: { Args: { cid: string; content: string; kind: string; message_id: string }; Returns: Json }
-      chat_mark_read: { Args: { cid: string; through_seq: number }; Returns: undefined }
-      chat_list_conversations: {
-        Args: { ws: string }
-        Returns: {
-          id: string; workspace_id: string; participant_a: string; participant_b: string; created_at: string
-          last_message_at: string | null; last_message_seq: number; read_seq: number; unread_count: number
-          peer_id: string; peer_name: string; peer_sprite_id: string | null; peer_color: string
-          last_body: string | null; last_type: string | null; last_sender_id: string | null
-        }[]
-      }
       account_plan_allows_tier: {
         Args: {
           _plan: Database["public"]["Enums"]["account_plan"]
