@@ -103,6 +103,7 @@ export type Database = {
           reply_to_message_id: string | null
           is_forwarded: boolean
           cancelled_at: string | null
+          deleted_at: string | null
         }
         Insert: {
           body: string | null
@@ -115,6 +116,7 @@ export type Database = {
           reply_to_message_id?: string | null
           is_forwarded?: boolean
           cancelled_at?: string | null
+          deleted_at?: string | null
         }
         Update: {
           body?: string | null
@@ -127,6 +129,7 @@ export type Database = {
           reply_to_message_id?: string | null
           is_forwarded?: boolean
           cancelled_at?: string | null
+          deleted_at?: string | null
         }
         Relationships: [
           {
@@ -1156,6 +1159,7 @@ export type Database = {
       chat_send_message_v2: { Args: { cid: string; content: string; kind: string; message_id: string; reply_to?: string | null }; Returns: Json }
       chat_mark_delivered: { Args: { cid: string; through_seq: number }; Returns: undefined }
       chat_set_reaction: { Args: { cid: string; message_id: string; emoji: string | null }; Returns: Json }
+      chat_delete_message: { Args: { cid: string; message_id: string }; Returns: Json }
       chat_cancel_message: { Args: { cid: string; message_id: string }; Returns: Json }
       chat_forward_message: { Args: { cid: string; message_id: string; peer: string; forward_id: string }; Returns: Json }
       chat_can_access_conversation: { Args: { cid: string }; Returns: boolean }

@@ -3,7 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SpriteAvatar } from "@/components/profile/SpriteAvatar";
-import { messageReceipt } from "@/lib/chat/message-state";
+import { messageReceipt, isMessageRemoved } from "@/lib/chat/message-state";
 import type { ChatConversation, ChatMessage } from "@/lib/chat/types";
 import type { ChatState, ChatStore } from "@/lib/chat/store";
 
@@ -81,10 +81,10 @@ export function MessageInfoDialog({
   const at = new Date(message.created_at);
   return (
     <ChatDialog title="Informações da mensagem" host={host} onClose={onClose}>
-      {message.cancelled_at && (
+      {isMessageRemoved(message) && (
         <p className="mb-3 text-xs text-muted-foreground">
-          Mensagem cancelada. As confirmações referem-se ao registro da mensagem, que agora contém o
-          aviso de cancelamento.
+          {message.deleted_at ? "Mensagem apagada." : "Mensagem cancelada."} As confirmações
+          referem-se ao registro da mensagem, que agora contém o aviso de remoção.
         </p>
       )}
       <dl className="grid grid-cols-2 gap-3 text-sm">
@@ -102,13 +102,15 @@ export function MessageInfoDialog({
     </ChatDialog>
   );
 }
-export function CancelMessageDialog({
+export function MessageRemovalDialog({
+  operation,
   message,
   state,
   store,
   host,
   onClose,
 }: {
+  operation: "cancel" | "delete";
   message: ChatMessage;
   state: ChatState;
   store: ChatStore;
@@ -116,11 +118,19 @@ export function CancelMessageDialog({
   onClose: () => void;
 }) {
   const busy = state.actionsPending?.includes(message.id) ?? false;
+  const deleting = operation === "delete";
   return (
-    <ChatDialog title="Cancelar esta mensagem?" host={host} onClose={onClose} busy={busy}>
+    <ChatDialog
+      title={deleting ? "Apagar esta mensagem?" : "Cancelar esta mensagem?"}
+      host={host}
+      onClose={onClose}
+      busy={busy}
+    >
       <p className="text-sm text-muted-foreground">
-        O conteúdo será removido para os participantes se ainda não tiver sido lido. Cópias já
-        encaminhadas ou copiadas não podem ser apagadas.
+        {deleting
+          ? "O conteúdo desta mensagem já lida será apagado para os participantes. O aviso permanecerá no histórico."
+          : "O conteúdo será removido para os participantes se ainda não tiver sido lido."}{" "}
+        Cópias já encaminhadas ou copiadas não podem ser apagadas.
       </p>
       {state.error && (
         <p role="alert" className="mt-3 text-sm text-destructive">
@@ -133,12 +143,19 @@ export function CancelMessageDialog({
         </Button>
         <Button
           variant="destructive"
-          disabled={busy || !!message.cancelled_at}
+          disabled={busy || isMessageRemoved(message)}
           onClick={async () => {
-            if (await store.cancel(message.id)) onClose();
+            if (await (deleting ? store.deleteMessage(message.id) : store.cancel(message.id)))
+              onClose();
           }}
         >
-          {busy ? "Cancelando…" : "Cancelar envio"}
+          {busy
+            ? deleting
+              ? "Apagando…"
+              : "Cancelando…"
+            : deleting
+              ? "Apagar mensagem"
+              : "Cancelar envio"}
         </Button>
       </div>
     </ChatDialog>
@@ -212,9 +229,9 @@ export function ForwardMessagesDialog({
           </label>
         ))}
       </div>
-      {message.cancelled_at && (
+      {isMessageRemoved(message) && (
         <p role="alert" className="mt-3 text-sm">
-          Esta mensagem foi cancelada.
+          Esta mensagem não está mais disponível.
         </p>
       )}
       {state.error && (
@@ -229,7 +246,7 @@ export function ForwardMessagesDialog({
       )}
       <div className="mt-4 flex justify-end">
         <Button
-          disabled={busy || !selected.size || !!message.cancelled_at}
+          disabled={busy || !selected.size || isMessageRemoved(message)}
           onClick={async () => {
             const response = await store.forward(message.id, [...selected], operation);
             if (!response.failed.length) onClose();

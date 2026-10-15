@@ -12,7 +12,7 @@ import {
   type IncomingChat,
 } from "./types";
 import { findChatSticker } from "./stickers";
-import { mergeChatMessages, mergeChatReactions } from "./message-state";
+import { mergeChatMessages, mergeChatReactions, isMessageRemoved } from "./message-state";
 import { createDeliveryQueue } from "./delivery-queue";
 import { createMessageActions } from "./message-actions";
 
@@ -87,11 +87,11 @@ export function createChatStore(deps: Deps) {
   // Keep each uncertain attempt until that same payload is acknowledged. A sticker
   // must not erase the identity of a text whose server response was lost.
   const pending = new Map<string, { id: string }>();
-  // Keep conversation-keyed cancellation metadata for this workspace-store's
+  // Keep conversation-keyed cancellation/deletion metadata for this workspace-store's
   // lifetime. Background delivery can outlive a selection change. No plaintext
-  // or persistence: an old page/lookup must never resurrect a known cancellation.
-  const cancelledMessages = new Map<string, string>();
-  const cancellationKey = (row: ChatMessage) => JSON.stringify([row.conversation_id, row.id]);
+  // or persistence: an old page/lookup must never resurrect a known tombstone.
+  const messageTombstones = new Map<string, Pick<ChatMessage, "cancelled_at" | "deleted_at">>();
+  const tombstoneKey = (row: ChatMessage) => JSON.stringify([row.conversation_id, row.id]);
   const listeners = new Set<() => void>();
   const alerted = new Map<string, number>();
   const isForeground =
@@ -103,13 +103,16 @@ export function createChatStore(deps: Deps) {
     if (!disposed) {
       const cid = next.selectedId !== undefined ? next.selectedId : state.selectedId;
       for (const row of [...(next.messages ?? []), ...(next.replyMessages ?? [])])
-        if (row.conversation_id === cid && row.cancelled_at)
-          cancelledMessages.set(cancellationKey(row), row.cancelled_at);
+        if (row.conversation_id === cid && isMessageRemoved(row))
+          messageTombstones.set(tombstoneKey(row), {
+            cancelled_at: row.cancelled_at ?? null,
+            deleted_at: row.deleted_at ?? null,
+          });
       const redact = (rows: ChatMessage[]) =>
         rows.map((row) => {
           const at =
-            row.conversation_id === cid ? cancelledMessages.get(cancellationKey(row)) : undefined;
-          return at ? { ...row, body: null, cancelled_at: at } : row;
+            row.conversation_id === cid ? messageTombstones.get(tombstoneKey(row)) : undefined;
+          return at ? { ...row, body: null, ...at } : row;
         });
       // Normalize before notifying subscribers: no transient plaintext snapshot.
       if (next.messages) next = { ...next, messages: redact(next.messages) };
@@ -132,11 +135,17 @@ export function createChatStore(deps: Deps) {
   let contextWorker: { token: number; again: boolean } | null = null;
   const createId = deps.createId ?? (() => crypto.randomUUID());
   function applyMessages(rows: ChatMessage[]) {
+    if (disposed) return;
+    for (const row of rows)
+      if (isMessageRemoved(row))
+        messageTombstones.set(tombstoneKey(row), {
+          cancelled_at: row.cancelled_at ?? null,
+          deleted_at: row.deleted_at ?? null,
+        });
     const cid = state.selectedId;
     if (!cid) return;
     const scoped = rows.filter((m) => m.conversation_id === cid);
-    for (const row of scoped)
-      if (row.cancelled_at) cancelledMessages.set(cancellationKey(row), row.cancelled_at);
+    if (rows.length && !scoped.length) return;
     const first = state.messages[0]?.seq ?? 0;
     const display = scoped.filter(
       (m) => !first || m.seq >= first || state.messages.some((old) => old.id === m.id),
@@ -149,7 +158,7 @@ export function createChatStore(deps: Deps) {
     const merged = merge(state.messages, display);
     const context = merge(state.replyMessages ?? [], related);
     const tombstones = new Map(
-      [...merged, ...context].filter((m) => m.cancelled_at).map((m) => [m.id, m]),
+      [...merged, ...context].filter(isMessageRemoved).map((m) => [m.id, m]),
     );
     const messages = merged.map((m) => tombstones.get(m.id) ?? m);
     const replyMessages = context.map((m) => tombstones.get(m.id) ?? m);
@@ -164,7 +173,7 @@ export function createChatStore(deps: Deps) {
   function applyReaction(row: ChatReaction) {
     if (
       row.conversation_id !== state.selectedId ||
-      !state.messages.some((m) => m.id === row.message_id && !m.cancelled_at)
+      !state.messages.some((m) => m.id === row.message_id && !isMessageRemoved(m))
     )
       return;
     patch({ reactions: mergeChatReactions(state.reactions ?? [], [row]) });
@@ -523,7 +532,7 @@ export function createChatStore(deps: Deps) {
       replyTo &&
       (!state.interactions ||
         ![...state.messages, ...(state.replyMessages ?? [])].some(
-          (m) => m.id === replyTo && !m.cancelled_at,
+          (m) => m.id === replyTo && !isMessageRemoved(m),
         ))
     )
       return false;
@@ -591,7 +600,7 @@ export function createChatStore(deps: Deps) {
     listeners.clear();
     alerted.clear();
     pending.clear();
-    cancelledMessages.clear();
+    messageTombstones.clear();
     delivery.dispose();
     actions.disposeActions();
   }

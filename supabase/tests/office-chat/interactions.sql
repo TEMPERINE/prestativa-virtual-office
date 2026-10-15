@@ -76,3 +76,36 @@ SELECT public._chat_assert(NOT has_function_privilege('authenticated','public.ch
 SELECT public._chat_rejected(format('INSERT INTO public.chat_messages(id,conversation_id,sender_id,body,message_type,seq,reply_to_message_id) VALUES(gen_random_uuid(),%L,%L,%L,%L,999999,%L)',:'other_cid','00000000-0000-4000-8000-000000000001','invalid','text','40000000-0000-4000-8000-000000000008'),'23503','same-conversation reply FK also protects direct trusted writes');
 SELECT public._chat_rejected(format('INSERT INTO public.chat_message_reactions(message_id,conversation_id,user_id,emoji) VALUES(%L,%L,%L,%L)','40000000-0000-4000-8000-000000000008',:'other_cid','00000000-0000-4000-8000-000000000001','👍'),'23503','reaction FK cannot claim another conversation');
 SELECT public._chat_rejected(format('INSERT INTO public.chat_messages(id,conversation_id,sender_id,body,message_type,seq) VALUES(gen_random_uuid(),%L,%L,NULL,%L,999999)',:'cid','00000000-0000-4000-8000-000000000001','text'),'23514','null body requires a cancellation tombstone');
+
+-- Post-read deletion is a distinct operation, never a hard DELETE.
+SET ROLE authenticated;
+SET request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';
+SELECT public.chat_send_message(:'cid','erase after read','text','40000000-0000-4000-8000-000000000010');
+SELECT seq AS delete_seq FROM public.chat_messages WHERE id='40000000-0000-4000-8000-000000000010' \gset
+SELECT public._chat_rejected(format('SELECT public.chat_delete_message(%L,%L)',:'cid','40000000-0000-4000-8000-000000000010'),'PCH03','post-read delete rejects unread message');
+SELECT public.chat_set_reaction(:'cid','40000000-0000-4000-8000-000000000010','❤️');
+SET request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';
+SELECT public.chat_mark_read(:'cid',:'delete_seq');
+SELECT public._chat_rejected(format('SELECT public.chat_delete_message(%L,%L)',:'cid','40000000-0000-4000-8000-000000000010'),'42501','recipient cannot delete sender message');
+SET request.jwt.claim.sub='00000000-0000-4000-8000-000000000003';
+SELECT public._chat_rejected(format('SELECT public.chat_delete_message(%L,%L)',:'cid','40000000-0000-4000-8000-000000000010'),'42501','third-party superadmin cannot delete private message');
+SET request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';
+SELECT public.chat_send_message_v2(:'cid','reply survives erasure','text','40000000-0000-4000-8000-000000000011','40000000-0000-4000-8000-000000000010');
+SELECT public._chat_rejected(format('SELECT public.chat_delete_message(%L,%L)',:'other_cid','40000000-0000-4000-8000-000000000010'),'42501','delete cannot target a different conversation');
+SELECT public.chat_delete_message(:'cid','40000000-0000-4000-8000-000000000010');
+SELECT public._chat_assert((SELECT count(*)=1 AND bool_and(body IS NULL AND deleted_at IS NOT NULL AND cancelled_at IS NULL AND seq=:'delete_seq' AND sender_id=auth.uid()) FROM public.chat_messages WHERE id='40000000-0000-4000-8000-000000000010'),'delete keeps identity row and distinct tombstone, removes body');
+SELECT public._chat_assert((SELECT bool_and(emoji IS NULL) FROM public.chat_message_reactions WHERE message_id='40000000-0000-4000-8000-000000000010'),'delete invalidates reactions');
+SELECT public._chat_assert((SELECT reply_to_message_id='40000000-0000-4000-8000-000000000010' FROM public.chat_messages WHERE id='40000000-0000-4000-8000-000000000011'),'reply reference survives deletion without copied body');
+SELECT public.chat_delete_message(:'cid','40000000-0000-4000-8000-000000000010');
+SELECT public.chat_send_message(:'cid','erase after read','text','40000000-0000-4000-8000-000000000010');
+SELECT public._chat_assert((SELECT body IS NULL AND deleted_at IS NOT NULL FROM public.chat_messages WHERE id='40000000-0000-4000-8000-000000000010'),'delete and old send retry do not resurrect content');
+SELECT public._chat_rejected(format('SELECT public.chat_set_reaction(%L,%L,%L)',:'cid','40000000-0000-4000-8000-000000000010','👍'),'PCH02','deleted message cannot be reacted to');
+SELECT public._chat_rejected(format('SELECT public.chat_send_message_v2(%L,%L,%L,%L,%L)',:'cid','reply','text','40000000-0000-4000-8000-000000000012','40000000-0000-4000-8000-000000000010'),'PCH02','deleted message cannot be replied to');
+SELECT public._chat_rejected(format('SELECT public.chat_forward_message(%L,%L,%L,%L)',:'cid','40000000-0000-4000-8000-000000000010','00000000-0000-4000-8000-000000000003','40000000-0000-4000-8000-000000000013'),'PCH02','deleted message cannot be forwarded');
+SELECT public._chat_rejected(format('SELECT public.chat_cancel_message(%L,%L)',:'cid','40000000-0000-4000-8000-000000000010'),'PCH02','deleted message cannot become cancelled');
+SELECT public._chat_rejected(format('SELECT public.chat_delete_message(%L,%L)',:'cid','40000000-0000-4000-8000-000000000009'),'PCH02','cancelled message cannot become deleted');
+SET request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';
+SELECT public._chat_assert((SELECT body IS NULL AND deleted_at IS NOT NULL FROM public.chat_messages WHERE id='40000000-0000-4000-8000-000000000010'),'recipient normal history sees only deleted tombstone');
+RESET ROLE;
+SELECT public._chat_assert(has_function_privilege('authenticated','public.chat_delete_message(uuid,uuid)','EXECUTE') AND NOT has_function_privilege('anon','public.chat_delete_message(uuid,uuid)','EXECUTE') AND NOT has_function_privilege('service_role','public.chat_delete_message(uuid,uuid)','EXECUTE'),'delete RPC auth-only grant');
+SELECT public._chat_rejected($q$UPDATE public.chat_messages SET cancelled_at=now() WHERE id='40000000-0000-4000-8000-000000000010'$q$,'23514','cancelled and deleted states are mutually exclusive');

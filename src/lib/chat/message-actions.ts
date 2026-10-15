@@ -1,3 +1,4 @@
+import { isMessageRemoved } from "./message-state";
 import { ChatActionError } from "./api";
 import type { ChatApi, ChatMessage, ChatReaction } from "./types";
 import type { ChatState } from "./store";
@@ -25,7 +26,7 @@ export function createMessageActions(d: Deps) {
     const scope = d.scope();
     if (!scope || !d.getState().interactions || pending.has(id)) return null;
     const row = d.getState().messages.find((m) => m.id === id);
-    if (!row || row.cancelled_at) return null;
+    if (!row || isMessageRemoved(row)) return null;
     pending.add(id);
     d.patch({ actionsPending: [...pending], error: null });
     return scope;
@@ -52,15 +53,25 @@ export function createMessageActions(d: Deps) {
       finish(id, scope);
     }
   }
-  async function cancel(id: string) {
-    if (!d.api.cancel) return false;
+  async function remove(id: string, operation: "cancel" | "delete") {
+    const mutate = d.api[operation];
+    if (!mutate) return false;
     const scope = start(id);
     if (!scope) return false;
     try {
       if (d.getState().messages.find((m) => m.id === id)?.sender_id !== d.userId)
-        throw new ChatActionError("Você não pode cancelar esta mensagem.");
-      const row = await d.api.cancel(scope.cid, id);
-      if (d.current(scope)) d.message(row);
+        throw new ChatActionError("Você não pode alterar esta mensagem.");
+      const row = await mutate(scope.cid, id);
+      if (
+        row.id !== id ||
+        row.conversation_id !== scope.cid ||
+        row.sender_id !== d.userId ||
+        !isMessageRemoved(row)
+      )
+        throw new Error("Unconfirmed removal response");
+      // An authoritative tombstone survives selection changes. The store keeps
+      // only its metadata and applies visible rows solely to the matching cid.
+      if (!d.disposed()) d.message(row);
       if (!d.disposed()) void d.refresh();
       return true;
     } catch (error) {
@@ -129,7 +140,8 @@ export function createMessageActions(d: Deps) {
   }
   return {
     react,
-    cancel,
+    cancel: (id: string) => remove(id, "cancel"),
+    deleteMessage: (id: string) => remove(id, "delete"),
     forward,
     loadContacts,
     discardForward(operation: string) {

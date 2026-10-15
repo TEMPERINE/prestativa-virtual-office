@@ -23,7 +23,9 @@ function fail(error: { code?: string } | null): void {
     throw new ChatUnavailableError();
   if (error.code === "PCH01")
     throw new ChatActionError("Não é mais possível cancelar esta mensagem porque ela já foi lida.");
-  if (error.code === "PCH02") throw new ChatActionError("Esta mensagem foi cancelada.");
+  if (error.code === "PCH02") throw new ChatActionError("Esta mensagem foi cancelada ou apagada.");
+  if (error.code === "PCH03")
+    throw new ChatActionError("Esta mensagem ainda não foi lida. Use Cancelar envio.");
   if (error.code === "42501") throw new ChatActionError("Você não tem acesso a esta conversa.");
   throw new Error("Não foi possível atualizar o chat. Tente novamente.");
 }
@@ -36,7 +38,7 @@ const cursor = (value: unknown): value is number =>
 const nullableString = (value: unknown): value is string | null =>
   value === null || typeof value === "string";
 
-/** Network boundary; a cancellation can never put old plaintext back in the UI. */
+/** Network boundary; a tombstone can never put old plaintext back in the UI. */
 export function parseChatMessage(value: unknown): ChatMessage | null {
   const row = record(value);
   if (
@@ -48,7 +50,8 @@ export function parseChatMessage(value: unknown): ChatMessage | null {
   const seq = typeof row.seq === "number" ? row.seq : Number(row.seq);
   if (!Number.isSafeInteger(seq) || seq <= 0) return null;
   if (row.cancelled_at !== undefined && !nullableString(row.cancelled_at)) return null;
-  if (!row.cancelled_at && typeof row.body !== "string") return null;
+  if (row.deleted_at !== undefined && !nullableString(row.deleted_at)) return null;
+  if (!row.cancelled_at && !row.deleted_at && typeof row.body !== "string") return null;
   if (row.reply_to_message_id !== undefined && !nullableString(row.reply_to_message_id))
     return null;
   if (row.is_forwarded !== undefined && typeof row.is_forwarded !== "boolean") return null;
@@ -56,10 +59,11 @@ export function parseChatMessage(value: unknown): ChatMessage | null {
     id: row.id as string,
     conversation_id: row.conversation_id as string,
     sender_id: row.sender_id as string,
-    body: row.cancelled_at ? null : (row.body as string),
+    body: row.cancelled_at || row.deleted_at ? null : (row.body as string),
     message_type: row.message_type,
     seq,
     created_at: row.created_at as string,
+    ...("deleted_at" in row ? { deleted_at: row.deleted_at as string | null } : {}),
     ...("cancelled_at" in row ? { cancelled_at: row.cancelled_at as string | null } : {}),
     ...("reply_to_message_id" in row
       ? { reply_to_message_id: row.reply_to_message_id as string | null }
@@ -120,7 +124,11 @@ function parseConversation(value: unknown): ChatConversation | null {
     ].some((k) => !nullableString(r[k]))
   )
     return null;
+  if (r.last_deleted_at !== undefined && !nullableString(r.last_deleted_at)) return null;
   return {
+    ...(r.last_deleted_at !== undefined
+      ? { last_deleted_at: r.last_deleted_at as string | null }
+      : {}),
     id: r.id as string,
     workspace_id: r.workspace_id as string,
     participant_a: r.participant_a as string,
@@ -272,6 +280,11 @@ export function createChatApi(client: SupabaseClient<Database>): ChatApi {
       const row = parseChatReaction(data);
       if (!row) throw new Error("Invalid reaction response");
       return row;
+    },
+    async delete(cid, id) {
+      const { data, error } = await client.rpc("chat_delete_message", { cid, message_id: id });
+      fail(error);
+      return one(data);
     },
     async cancel(cid, id) {
       const { data, error } = await client.rpc("chat_cancel_message", { cid, message_id: id });

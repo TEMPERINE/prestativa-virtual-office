@@ -4,7 +4,7 @@ export const CHAT_PAGE_SIZE = 40;
 export const CHAT_MAX_LENGTH = 4000;
 export type ChatMessageType = "text" | "sticker";
 type MessageRow = Database["public"]["Tables"]["chat_messages"]["Row"];
-type NewMessageFields = "reply_to_message_id" | "is_forwarded" | "cancelled_at";
+type NewMessageFields = "reply_to_message_id" | "is_forwarded" | "cancelled_at" | "deleted_at";
 // Optional metadata permits the existing MVP while the incremental SQL is staged.
 export type ChatMessage = Omit<MessageRow, NewMessageFields> &
   Partial<Pick<MessageRow, NewMessageFields>>;
@@ -20,6 +20,7 @@ export type ChatConversation = Omit<
   own_delivered_seq?: number;
   peer_delivered_seq?: number;
   peer_read_seq?: number;
+  last_deleted_at?: string | null;
   last_cancelled_at?: string | null;
   last_message_at: string | null;
   last_body: string | null;
@@ -49,6 +50,7 @@ export interface ChatApi {
   reactions?(cid: string, ids: string[]): Promise<ChatReaction[]>;
   lookup?(cid: string, ids: string[]): Promise<ChatMessage[]>;
   react?(cid: string, id: string, emoji: string | null): Promise<ChatReaction>;
+  delete?(cid: string, id: string): Promise<ChatMessage>;
   cancel?(cid: string, id: string): Promise<ChatMessage>;
   forward?(cid: string, id: string, peerId: string, requestId: string): Promise<ChatMessage>;
   contacts?(workspaceId: string): Promise<ChatContact[]>;

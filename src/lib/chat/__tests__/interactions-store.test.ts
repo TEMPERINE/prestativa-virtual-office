@@ -67,6 +67,12 @@ function setup() {
       revision: ++rev,
       created_at: "2026-10-15T10:00:00Z",
     })),
+    delete: vi.fn(async (cid, id) => ({
+      ...msg(1, cid),
+      id,
+      body: null,
+      deleted_at: "2026-10-15T11:00:00Z",
+    })),
     cancel: vi.fn(async (cid, id) => ({
       ...msg(1, cid),
       id,
@@ -291,7 +297,116 @@ it("a cancelled reply target cannot reappear through an older history page", asy
   expect(s.store.getSnapshot().messages.find((m) => m.id === "m1")?.body).toBeNull();
 });
 
-it("retains unloaded cancellation events before an in-flight older page returns", async () => {
+it.each(["cancelled_at", "deleted_at"] as const)(
+  "retains unloaded cancellation events before an in-flight older page returns (%s)",
+  async (field) => {
+    const s = setup();
+    let resolve!: (page: { messages: ChatMessage[]; hasMore: boolean }) => void;
+    vi.mocked(s.api.history)
+      .mockResolvedValueOnce({ messages: [msg(41)], hasMore: true })
+      .mockReturnValueOnce(
+        new Promise((r) => {
+          resolve = r;
+        }),
+      );
+    await selected(s);
+    const pendingPage = s.store.loadOlder();
+    s.receive({ ...msg(10), body: null, [field]: "2026-10-15T11:00:00Z" });
+    expect(s.store.getSnapshot().messages.map((m) => m.seq)).toEqual([41]);
+    const exposed: (string | null)[] = [];
+    const stop = s.store.subscribe(() => {
+      const row = s.store.getSnapshot().messages.find((m) => m.id === "m10");
+      if (row) exposed.push(row.body);
+    });
+    resolve({ messages: [msg(10)], hasMore: false });
+    await pendingPage;
+    await flush();
+    stop();
+    expect(s.store.getSnapshot().messages.find((m) => m.id === "m10")?.body).toBeNull();
+    expect(exposed.length).toBeGreaterThan(0);
+    expect(exposed.every((body) => body === null)).toBe(true);
+  },
+);
+
+it.each(["cancelled_at", "deleted_at"] as const)(
+  "redacts a stale jump lookup even when its cancelled target was never loaded or referenced (%s)",
+  async (field) => {
+    const s = setup();
+    vi.mocked(s.api.history).mockResolvedValue({ messages: [msg(41)], hasMore: false });
+    await selected(s);
+    let resolve!: (rows: ChatMessage[]) => void;
+    vi.mocked(s.api.lookup!).mockReturnValueOnce(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    const pendingJump = s.store.revealMessage("m10");
+    s.receive({ ...msg(10), body: null, [field]: "2026-10-15T11:00:00Z" });
+    resolve([msg(10)]);
+    await pendingJump;
+    expect(s.store.getSnapshot().replyMessages?.find((m) => m.id === "m10")?.body).toBeNull();
+  },
+);
+
+it.each(["cancelled_at", "deleted_at"] as const)(
+  "keeps cancellation metadata across selection changes for background delivery snapshots (%s)",
+  async (field) => {
+    const s = setup();
+    let delivery!: (rows: ChatMessage[]) => void;
+    let history!: (page: { messages: ChatMessage[]; hasMore: boolean }) => void;
+    s.rows([{ ...conv(), last_message_seq: 41 }, conv("other")]);
+    vi.mocked(s.api.undelivered!).mockReturnValueOnce(
+      new Promise((r) => {
+        delivery = r;
+      }),
+    );
+    vi.mocked(s.api.history)
+      .mockResolvedValueOnce({ messages: [msg(41)], hasMore: true })
+      .mockResolvedValueOnce({ messages: [msg(10, "other")], hasMore: false })
+      .mockReturnValueOnce(
+        new Promise((r) => {
+          history = r;
+        }),
+      );
+    await selected(s);
+    s.receive({ ...msg(10), body: null, [field]: "2026-10-15T11:00:00Z" });
+    await s.store.select("other");
+    expect(s.store.getSnapshot().messages[0].body).toBe("text 10");
+    const reselect = s.store.select("c");
+    delivery(Array.from({ length: 41 }, (_, index) => msg(index + 1)));
+    await flush();
+    expect(s.store.getSnapshot().messages.find((m) => m.id === "m10")?.body).toBeNull();
+    history({ messages: [msg(41)], hasMore: true });
+    await reselect;
+  },
+);
+
+it("deletes through the scoped authoritative RPC, invalidates reactions and survives reconnect", async () => {
+  const s = setup();
+  await selected(s);
+  await s.store.react("m1", "👍");
+  expect(await s.store.deleteMessage("m1")).toBe(true);
+  expect(s.store.getSnapshot().messages[0].body).toBeNull();
+  expect(s.store.getSnapshot().messages[0].deleted_at).toBeTruthy();
+  expect(s.store.getSnapshot().reactions?.filter((r) => r.emoji)).toEqual([]);
+  s.receive(msg(1));
+  s.ready();
+  await flush();
+  expect(s.store.getSnapshot().messages[0].body).toBeNull();
+  expect(await s.store.react("m1", "👍")).toBe(false);
+  expect(await s.store.send("reply", "text", "m1")).toBe(false);
+});
+it("unread delete rejection preserves content and renders the server-specific error", async () => {
+  const s = setup();
+  await selected(s);
+  vi.mocked(s.api.delete!).mockRejectedValueOnce(
+    new ChatActionError("Esta mensagem ainda não foi lida. Use Cancelar envio."),
+  );
+  expect(await s.store.deleteMessage("m1")).toBe(false);
+  expect(s.store.getSnapshot().messages[0].body).toBe("text 1");
+  expect(s.store.getSnapshot().error).toContain("ainda não foi lida");
+});
+it("an unloaded deletion survives a delayed history snapshot without exposing plaintext", async () => {
   const s = setup();
   let resolve!: (page: { messages: ChatMessage[]; hasMore: boolean }) => void;
   vi.mocked(s.api.history)
@@ -302,66 +417,90 @@ it("retains unloaded cancellation events before an in-flight older page returns"
       }),
     );
   await selected(s);
-  const pendingPage = s.store.loadOlder();
-  s.receive({ ...msg(10), body: null, cancelled_at: "2026-10-15T11:00:00Z" });
-  expect(s.store.getSnapshot().messages.map((m) => m.seq)).toEqual([41]);
+  const request = s.store.loadOlder();
+  s.receive({ ...msg(10), body: null, deleted_at: "2026-10-15T11:00:00Z" });
   const exposed: (string | null)[] = [];
-  const stop = s.store.subscribe(() => {
+  s.store.subscribe(() => {
     const row = s.store.getSnapshot().messages.find((m) => m.id === "m10");
     if (row) exposed.push(row.body);
   });
   resolve({ messages: [msg(10)], hasMore: false });
-  await pendingPage;
-  await flush();
-  stop();
-  expect(s.store.getSnapshot().messages.find((m) => m.id === "m10")?.body).toBeNull();
-  expect(exposed.length).toBeGreaterThan(0);
+  await request;
+  expect(s.store.getSnapshot().messages.find((m) => m.id === "m10")?.deleted_at).toBeTruthy();
   expect(exposed.every((body) => body === null)).toBe(true);
 });
-
-it("redacts a stale jump lookup even when its cancelled target was never loaded or referenced", async () => {
+it("a fresh Chat store reloads the persisted deleted tombstone and keeps actions disabled", async () => {
   const s = setup();
-  vi.mocked(s.api.history).mockResolvedValue({ messages: [msg(41)], hasMore: false });
   await selected(s);
-  let resolve!: (rows: ChatMessage[]) => void;
-  vi.mocked(s.api.lookup!).mockReturnValueOnce(
-    new Promise((r) => {
-      resolve = r;
-    }),
-  );
-  const pendingJump = s.store.revealMessage("m10");
-  s.receive({ ...msg(10), body: null, cancelled_at: "2026-10-15T11:00:00Z" });
-  resolve([msg(10)]);
-  await pendingJump;
-  expect(s.store.getSnapshot().replyMessages?.find((m) => m.id === "m10")?.body).toBeNull();
+  await s.store.deleteMessage("m1");
+  const persisted = s.store.getSnapshot().messages[0];
+  s.store.dispose();
+  const reloaded = setup();
+  vi.mocked(reloaded.api.history).mockResolvedValue({ messages: [persisted], hasMore: false });
+  await selected(reloaded);
+  expect(reloaded.store.getSnapshot().messages[0].deleted_at).toBeTruthy();
+  expect(reloaded.store.getSnapshot().messages[0].body).toBeNull();
+  expect(await reloaded.store.react("m1", "👍")).toBe(false);
 });
-
-it("keeps cancellation metadata across selection changes for background delivery snapshots", async () => {
-  const s = setup();
-  let delivery!: (rows: ChatMessage[]) => void;
-  let history!: (page: { messages: ChatMessage[]; hasMore: boolean }) => void;
-  s.rows([{ ...conv(), last_message_seq: 41 }, conv("other")]);
-  vi.mocked(s.api.undelivered!).mockReturnValueOnce(
-    new Promise((r) => {
-      delivery = r;
-    }),
-  );
-  vi.mocked(s.api.history)
-    .mockResolvedValueOnce({ messages: [msg(41)], hasMore: true })
-    .mockResolvedValueOnce({ messages: [msg(10, "other")], hasMore: false })
-    .mockReturnValueOnce(
-      new Promise((r) => {
-        history = r;
+it.each(["cancel", "delete"] as const)(
+  "retains a successful %s tombstone after switching away and back before stale history arrives",
+  async (operation) => {
+    const s = setup();
+    await selected(s);
+    let finish!: (row: ChatMessage) => void;
+    vi.mocked(s.api[operation]!).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
       }),
     );
-  await selected(s);
-  s.receive({ ...msg(10), body: null, cancelled_at: "2026-10-15T11:00:00Z" });
-  await s.store.select("other");
-  expect(s.store.getSnapshot().messages[0].body).toBe("text 10");
-  const reselect = s.store.select("c");
-  delivery(Array.from({ length: 41 }, (_, index) => msg(index + 1)));
-  await flush();
-  expect(s.store.getSnapshot().messages.find((m) => m.id === "m10")?.body).toBeNull();
-  history({ messages: [msg(41)], hasMore: true });
-  await reselect;
-});
+    const mutation = operation === "delete" ? s.store.deleteMessage("m1") : s.store.cancel("m1");
+    vi.mocked(s.api.history).mockResolvedValueOnce({ messages: [msg(1, "other")], hasMore: false });
+    await s.store.select("other");
+    expect(s.store.getSnapshot().messages[0].body).toBe("text 1");
+    let history!: (page: { messages: ChatMessage[]; hasMore: boolean }) => void;
+    vi.mocked(s.api.history).mockReturnValueOnce(
+      new Promise((resolve) => {
+        history = resolve;
+      }),
+    );
+    const returning = s.store.select("c");
+    const field = operation === "delete" ? "deleted_at" : "cancelled_at";
+    finish({ ...msg(1), body: null, [field]: "2026-10-15T11:00:00Z" });
+    expect(await mutation).toBe(true);
+    const exposed: (string | null)[] = [];
+    s.store.subscribe(() => {
+      const row = s.store.getSnapshot().messages.find((m) => m.id === "m1");
+      if (row) exposed.push(row.body);
+    });
+    history({ messages: [msg(1)], hasMore: false });
+    await returning;
+    expect(s.store.getSnapshot().messages[0].body).toBeNull();
+    expect(s.store.getSnapshot().messages[0][field]).toBeTruthy();
+    expect(exposed.every((body) => body === null)).toBe(true);
+  },
+);
+it.each(["cancel", "delete"] as const)(
+  "records a successful %s while another conversation is visible without changing its rows",
+  async (operation) => {
+    const s = setup();
+    await selected(s);
+    let finish!: (row: ChatMessage) => void;
+    vi.mocked(s.api[operation]!).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const mutation = operation === "delete" ? s.store.deleteMessage("m1") : s.store.cancel("m1");
+    vi.mocked(s.api.history).mockResolvedValueOnce({ messages: [msg(1, "other")], hasMore: false });
+    await s.store.select("other");
+    const field = operation === "delete" ? "deleted_at" : "cancelled_at";
+    finish({ ...msg(1), body: null, [field]: "2026-10-15T11:00:00Z" });
+    await mutation;
+    expect(s.store.getSnapshot().selectedId).toBe("other");
+    expect(s.store.getSnapshot().messages[0].body).toBe("text 1");
+    vi.mocked(s.api.history).mockResolvedValueOnce({ messages: [msg(1)], hasMore: false });
+    await s.store.select("c");
+    expect(s.store.getSnapshot().messages[0].body).toBeNull();
+    expect(s.store.getSnapshot().messages[0][field]).toBeTruthy();
+  },
+);

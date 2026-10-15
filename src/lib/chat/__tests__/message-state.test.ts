@@ -33,3 +33,8 @@ it("reaction revision makes tombstones and replacements survive older snapshots"
   expect(mergeChatReactions([reaction(3, null)], [reaction(2, "👍")])).toEqual([reaction(3, null)]);
   expect(mergeChatReactions([reaction(1, "❤️")], [reaction(2, "👍")])).toEqual([reaction(2, "👍")]);
 });
+it("a deleted tombstone wins over plaintext snapshots in either merge order", () => {
+  const deleted = { ...msg, body: null, deleted_at: "2026-10-15T11:00:00Z" };
+  expect(mergeChatMessages([deleted], [msg])).toEqual([deleted]);
+  expect(mergeChatMessages([msg], [deleted])).toEqual([deleted]);
+});

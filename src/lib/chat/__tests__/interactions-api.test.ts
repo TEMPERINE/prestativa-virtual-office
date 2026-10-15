@@ -121,3 +121,21 @@ it("a cancellation parser strips stale plaintext and rejects null active bodies"
   expect(parsed?.body).toBeNull();
   expect(parsed?.cancelled_at).toBeTruthy();
 });
+it("parses a deleted tombstone without preserving stale plaintext", () => {
+  expect(parseChatMessage({ ...message, deleted_at: "2026-10-15T11:00:00Z" })?.body).toBeNull();
+  expect(
+    parseChatMessage({ ...message, body: null, deleted_at: "2026-10-15T11:00:00Z" })?.deleted_at,
+  ).toBeTruthy();
+});
+it("delete uses its scoped RPC and gives a safe unread-specific error", async () => {
+  const s = setup(
+    vi.fn(async () => ({
+      data: { ...message, body: null, deleted_at: "2026-10-15T11:00:00Z" },
+      error: null,
+    })) as never,
+  );
+  expect((await s.api.delete!("c", "m")).deleted_at).toBeTruthy();
+  expect(s.rpc).toHaveBeenCalledWith("chat_delete_message", { cid: "c", message_id: "m" });
+  s.rpc.mockResolvedValueOnce({ data: null, error: { code: "PCH03" } } as never);
+  await expect(s.api.delete!("c", "m")).rejects.toThrow(/ainda não foi lida/);
+});

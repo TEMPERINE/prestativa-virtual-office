@@ -271,6 +271,14 @@ it("avatar's real interaction menu opens Chat without replacing the scene or its
   dragPointer("pointermove", 820, 120);
   dragPointer("pointerup", 820, 120);
   expect(parseFloat(panelElement.style.left)).toBe(beforeLeft - 80);
+  fireEvent.click(screen.getByLabelText("Reagir à mensagem 1"));
+  const reactions = await screen.findByRole("toolbar", { name: "Reações rápidas" });
+  expect(document.querySelector("[data-office-topbar]")?.closest('[tabindex="0"]')).toBe(scene);
+  fireEvent.keyDown(reactions, { key: "Escape" });
+  await waitFor(() =>
+    expect(screen.queryByRole("toolbar", { name: "Reações rápidas" })).toBeNull(),
+  );
+  expect(screen.getByRole("dialog", { name: "Mensagens privadas" })).toBeTruthy();
   const optionEvent = new MouseEvent("pointerdown", {
     bubbles: true,
     cancelable: true,

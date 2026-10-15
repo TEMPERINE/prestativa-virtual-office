@@ -1,5 +1,8 @@
 import type { ChatConversation, ChatMessage, ChatReaction } from "./types";
 
+export const isMessageRemoved = (message: ChatMessage) =>
+  !!(message.cancelled_at || message.deleted_at);
+
 export function messageReceipt(
   message: ChatMessage,
   conversation: ChatConversation,
@@ -12,7 +15,8 @@ export function mergeChatMessages(left: ChatMessage[], right: ChatMessage[]): Ch
   const rows = new Map<string, ChatMessage>();
   for (const row of [...left, ...right]) {
     const previous = rows.get(row.id);
-    if (!previous?.cancelled_at || row.cancelled_at) rows.set(row.id, row);
+    if (!previous || !isMessageRemoved(previous) || isMessageRemoved(row))
+      rows.set(row.id, isMessageRemoved(row) ? { ...row, body: null } : row);
   }
   return [...rows.values()].sort((a, b) => a.seq - b.seq);
 }

@@ -107,6 +107,12 @@ it("selected channel receives scoped cancellation updates and versioned reaction
     body: null,
     cancelled_at: "2026-10-15T10:00:00Z",
   });
+  update?.callback({ new: { ...message, body: "stale", deleted_at: "2026-10-15T11:00:00Z" } });
+  expect(received).toHaveBeenLastCalledWith({
+    ...message,
+    body: null,
+    deleted_at: "2026-10-15T11:00:00Z",
+  });
   const reactionUpdate = channels[0].handlers.find(
     (h) => h.config.table === "chat_message_reactions" && h.config.event === "UPDATE",
   );

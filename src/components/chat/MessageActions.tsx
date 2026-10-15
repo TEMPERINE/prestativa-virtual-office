@@ -1,18 +1,16 @@
 import { useEffect, useState } from "react";
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import EmojiPicker, { EmojiStyle, Theme } from "emoji-picker-react";
 import { MoreHorizontal } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { isMessageRemoved } from "@/lib/chat/message-state";
+import { MessageReactionBar } from "./MessageReactionBar";
 import type { ChatConversation, ChatMessage } from "@/lib/chat/types";
 import type { ChatState, ChatStore } from "@/lib/chat/store";
 import {
-  ChatDialog,
-  CancelMessageDialog,
+  MessageRemovalDialog,
   ForwardMessagesDialog,
   MessageInfoDialog,
 } from "./ChatMessageDialogs";
-const QUICK = ["❤️", "👍", "😂", "😮", "😢", "🙏"];
-type DialogName = "reaction" | "forward" | "cancel" | "info" | null;
+type DialogName = "forward" | "cancel" | "delete" | "info" | null;
 export function MessageActions({
   message,
   conversation,
@@ -34,17 +32,19 @@ export function MessageActions({
 }) {
   const [menu, setMenu] = useState(false),
     [dialog, setDialog] = useState<DialogName>(null),
-    [allEmoji, setAllEmoji] = useState(false),
+    [reactionOpen, setReactionOpen] = useState(false),
     [copyError, setCopyError] = useState("");
   const own = message.sender_id === userId,
     busy = state.actionsPending?.includes(message.id) ?? false,
-    active = menu || !!dialog;
+    active = menu || !!dialog || reactionOpen;
+  const removed = isMessageRemoved(message);
   useEffect(() => {
-    if (message.cancelled_at) {
+    if (removed) {
+      setReactionOpen(false);
       setMenu(false);
       if (dialog !== "info") setDialog(null);
     }
-  }, [message.cancelled_at, dialog]);
+  }, [removed, dialog]);
   useEffect(() => {
     onOverlayChange(message.id, active);
     return () => onOverlayChange(message.id, false);
@@ -54,9 +54,9 @@ export function MessageActions({
     store.clearError();
     setDialog(name);
     setMenu(false);
-    setAllEmoji(false);
+    setReactionOpen(false);
   }
-  if (message.cancelled_at && !own) return null;
+  if (removed && !own) return null;
   const itemClass =
     "cursor-pointer rounded px-3 py-2 text-sm outline-none focus:bg-muted data-[disabled]:opacity-50";
   return (
@@ -81,6 +81,9 @@ export function MessageActions({
         </Menu.Trigger>
         <Menu.Portal container={host}>
           <Menu.Content
+            onCloseAutoFocus={(event) => {
+              if (reactionOpen) event.preventDefault();
+            }}
             sideOffset={4}
             align="end"
             className="z-[380] min-w-40 rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
@@ -93,11 +96,19 @@ export function MessageActions({
               }
             }}
           >
-            {!message.cancelled_at && (
+            {!removed && (
               <>
                 {state.interactions && (
                   <>
-                    <Menu.Item className={itemClass} onSelect={() => open("reaction")}>
+                    <Menu.Item
+                      className={itemClass}
+                      onSelect={() => {
+                        store.clearError();
+                        onOverlayChange(message.id, true);
+                        setMenu(false);
+                        setReactionOpen(true);
+                      }}
+                    >
                       Reagir
                     </Menu.Item>
                     <Menu.Item
@@ -143,13 +154,24 @@ export function MessageActions({
             )}
             {own &&
               state.interactions &&
-              !message.cancelled_at &&
+              !removed &&
               (conversation.peer_read_seq ?? 0) < message.seq && (
                 <Menu.Item
                   className={`${itemClass} text-destructive`}
                   onSelect={() => open("cancel")}
                 >
                   Cancelar envio
+                </Menu.Item>
+              )}
+            {own &&
+              state.interactions &&
+              !removed &&
+              (conversation.peer_read_seq ?? 0) >= message.seq && (
+                <Menu.Item
+                  className={`${itemClass} text-destructive`}
+                  onSelect={() => open("delete")}
+                >
+                  Apagar mensagem
                 </Menu.Item>
               )}
           </Menu.Content>
@@ -160,54 +182,24 @@ export function MessageActions({
           {copyError}
         </p>
       )}
-      {dialog === "reaction" && !message.cancelled_at && (
-        <ChatDialog
-          title="Reagir à mensagem"
+      {state.interactions && !removed && (
+        <MessageReactionBar
+          open={reactionOpen}
+          onOpenChange={(value) => {
+            if (value) {
+              store.clearError();
+              onOverlayChange(message.id, true);
+            }
+            setReactionOpen(value);
+          }}
+          seq={message.seq}
+          own={own}
           host={host}
-          onClose={() => setDialog(null)}
           busy={busy}
-        >
-          <div className="flex flex-wrap gap-1">
-            {QUICK.map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                aria-label={`Reagir com ${emoji}`}
-                disabled={busy}
-                className="rounded-lg p-2 text-2xl hover:bg-muted disabled:opacity-50"
-                onClick={async () => {
-                  if (await store.react(message.id, emoji)) setDialog(null);
-                }}
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-          {!allEmoji ? (
-            <Button variant="ghost" className="mt-2" onClick={() => setAllEmoji(true)}>
-              Mais emojis
-            </Button>
-          ) : (
-            <div className="mt-2 overflow-hidden">
-              <EmojiPicker
-                emojiStyle={EmojiStyle.NATIVE}
-                theme={Theme.LIGHT}
-                width="100%"
-                height={360}
-                previewConfig={{ showPreview: false }}
-                searchPlaceholder="Buscar emoji..."
-                onEmojiClick={async (value) => {
-                  if (await store.react(message.id, value.emoji)) setDialog(null);
-                }}
-              />
-            </div>
-          )}
-          {state.error && (
-            <p role="alert" className="mt-3 text-sm text-destructive">
-              {state.error}
-            </p>
-          )}
-        </ChatDialog>
+          onReact={(emoji) => {
+            void store.react(message.id, emoji);
+          }}
+        />
       )}
       {dialog === "info" && (
         <MessageInfoDialog
@@ -217,8 +209,9 @@ export function MessageActions({
           onClose={() => setDialog(null)}
         />
       )}
-      {dialog === "cancel" && (
-        <CancelMessageDialog
+      {(dialog === "cancel" || dialog === "delete") && (
+        <MessageRemovalDialog
+          operation={dialog}
           message={message}
           state={state}
           store={store}

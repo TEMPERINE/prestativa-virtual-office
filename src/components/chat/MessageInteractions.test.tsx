@@ -4,7 +4,13 @@ import { useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { OfficeChat, useOfficeChat } from "./OfficeChat";
 import { ChatActionError } from "@/lib/chat/api";
-import type { ChatApi, ChatConversation, ChatMessage, ChatRealtime } from "@/lib/chat/types";
+import type {
+  ChatApi,
+  ChatConversation,
+  ChatMessage,
+  ChatReaction,
+  ChatRealtime,
+} from "@/lib/chat/types";
 import type { OfficePanel } from "@/lib/office/overlay";
 const msg = (seq: number, own = true): ChatMessage => ({
   id: `m${seq}`,
@@ -40,6 +46,7 @@ function services() {
   let inbox = () => {},
     receive = (_m: ChatMessage) => {},
     rev = 0;
+  let receiveReaction = (_r: ChatReaction) => {};
   let rows = [
       msg(1),
       msg(2, false),
@@ -83,6 +90,15 @@ function services() {
       rows = rows.map((m) => (m.id === id ? row : m));
       return row;
     }),
+    delete: vi.fn(async (_cid, id) => {
+      const row = {
+        ...rows.find((m) => m.id === id)!,
+        body: null,
+        deleted_at: "2026-10-15T11:00:00Z",
+      };
+      rows = rows.map((m) => (m.id === id ? row : m));
+      return row;
+    }),
     contacts: vi.fn(async () => [
       { id: "p1", name: "Colega Um", sprite_id: null },
       { id: "p2", name: "Colega Dois", sprite_id: null },
@@ -100,7 +116,8 @@ function services() {
       inbox = change;
       return () => {};
     },
-    messages: (_cid, cb) => {
+    messages: (_cid, cb, _ready, reaction) => {
+      receiveReaction = reaction ?? (() => {});
       receive = cb;
       return () => {};
     },
@@ -108,6 +125,10 @@ function services() {
   return {
     api,
     realtime,
+    reaction: (r: ChatReaction) => {
+      rev = Math.max(rev, r.revision);
+      receiveReaction(r);
+    },
     incoming: (m: ChatMessage) => receive(m),
     receipt: (delivered: number, read: number) => {
       conversation = { ...conversation, peer_delivered_seq: delivered, peer_read_seq: read };
@@ -340,4 +361,87 @@ it("reuses the installed full emoji picker without new dependencies", async () =
   const dialog = await screen.findByRole("dialog", { name: "Reagir à mensagem" });
   fireEvent.click(within(dialog).getByRole("button", { name: "Mais emojis" }));
   expect(await within(dialog).findByPlaceholderText("Buscar emoji...")).toBeTruthy();
+});
+
+it("opens a compact anchored quick toolbar directly from the bubble and expands only with plus", async () => {
+  await open();
+  fireEvent.click(screen.getByLabelText("Reagir à mensagem 1"));
+  const bar = await screen.findByRole("toolbar", { name: "Reações rápidas" });
+  expect(within(bar).getAllByRole("button")).toHaveLength(7);
+  expect(screen.queryByPlaceholderText("Buscar emoji...")).toBeNull();
+  expect(bar.closest("[data-radix-popper-content-wrapper]")).toBeTruthy();
+  fireEvent.click(within(bar).getByRole("button", { name: "Mais emojis" }));
+  expect(await screen.findByPlaceholderText("Buscar emoji...")).toBeTruthy();
+});
+it("shows one gray check, two gray checks, then two contrasting blue checks", async () => {
+  const s = await open();
+  const check = () => screen.getAllByLabelText(/^(Enviada|Entregue|Lida)$/)[0];
+  expect(check().getAttribute("title")).toBe("Enviada");
+  expect(check().querySelector("svg")?.classList.contains("lucide-check")).toBe(true);
+  expect(check().className).toContain("text-gray-600");
+  act(() => s.receipt(3, 0));
+  await screen.findAllByLabelText("Entregue");
+  expect(check().querySelector("svg")?.classList.contains("lucide-check-check")).toBe(true);
+  expect(check().className).toContain("text-gray-600");
+  act(() => s.receipt(3, 3));
+  await screen.findAllByLabelText("Lida");
+  expect(check().querySelector("svg")?.classList.contains("lucide-check-check")).toBe(true);
+  expect(check().className).toContain("text-blue-700");
+  expect(check().className).toContain("dark:text-blue-400");
+});
+it("read messages replace cancel with confirmed soft delete and remove incompatible actions", async () => {
+  const s = await open();
+  act(() => s.receipt(3, 3));
+  await screen.findAllByLabelText("Lida");
+  const actions = await menu(1);
+  expect(within(actions).queryByText("Cancelar envio")).toBeNull();
+  fireEvent.click(within(actions).getByRole("menuitem", { name: "Apagar mensagem" }));
+  const dialog = await screen.findByRole("dialog", { name: "Apagar esta mensagem?" });
+  expect(s.api.delete).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apagar mensagem" }));
+  await screen.findByText("Você apagou esta mensagem");
+  expect(screen.queryByText("Olá original")).toBeNull();
+  const remaining = await menu(1);
+  expect(within(remaining).getByRole("menuitem", { name: "Informações" })).toBeTruthy();
+  for (const name of [
+    "Reagir",
+    "Responder",
+    "Encaminhar",
+    "Copiar",
+    "Cancelar envio",
+    "Apagar mensagem",
+  ])
+    expect(within(remaining).queryByRole("menuitem", { name })).toBeNull();
+});
+it("Realtime groups different reactions in one overlaid badge and switching replaces own reaction", async () => {
+  const s = await open();
+  const reaction = (uid: string, emoji: string, revision = 1): ChatReaction => ({
+    message_id: "m1",
+    conversation_id: "c",
+    user_id: uid,
+    emoji,
+    revision,
+    created_at: "2026-10-15T10:00:00Z",
+  });
+  act(() => {
+    s.reaction(reaction("peer", "😂"));
+    s.reaction(reaction("me", "❤️"));
+  });
+  const badge = await screen.findByLabelText("Reações da mensagem 1");
+  expect(badge.className).toContain("absolute");
+  expect(within(badge).getByLabelText("Total de reações").textContent).toBe("2");
+  fireEvent.click(within(badge).getByRole("button", { name: "Reação 😂 (1)" }));
+  await waitFor(() => expect(s.api.react).toHaveBeenLastCalledWith("c", "m1", "😂"));
+  expect(within(badge).queryByRole("button", { name: "Reação ❤️ (1)" })).toBeNull();
+});
+it("received deletion redacts both its bubble and existing reply preview", async () => {
+  const s = await open();
+  fireEvent.click(within(await menu(2)).getByRole("menuitem", { name: "Responder" }));
+  fireEvent.change(screen.getByLabelText("Mensagem"), { target: { value: "Resposta" } });
+  fireEvent.click(screen.getByRole("button", { name: "Enviar mensagem" }));
+  await screen.findByRole("button", { name: /Ver mensagem respondida/ });
+  act(() => s.incoming({ ...msg(2, false), body: null, deleted_at: "2026-10-15T11:00:00Z" }));
+  expect(await screen.findAllByText("Mensagem apagada")).toHaveLength(2);
+  expect(screen.queryByText("Texto da colega")).toBeNull();
+  expect(screen.queryByLabelText("Opções da mensagem 2")).toBeNull();
 });

@@ -22,11 +22,14 @@ ALTER TABLE public.chat_messages
   ADD COLUMN reply_to_message_id uuid,
   ADD COLUMN is_forwarded boolean NOT NULL DEFAULT false,
   ADD COLUMN cancelled_at timestamptz,
+  ADD COLUMN deleted_at timestamptz,
   ADD CONSTRAINT chat_message_identity_conversation UNIQUE(id,conversation_id),
   ADD CONSTRAINT chat_reply_same_conversation FOREIGN KEY(reply_to_message_id,conversation_id)
     REFERENCES public.chat_messages(id,conversation_id),
   ADD CONSTRAINT chat_cancelled_content CHECK(
-    (cancelled_at IS NULL AND body IS NOT NULL) OR (cancelled_at IS NOT NULL AND body IS NULL));
+    (cancelled_at IS NULL AND deleted_at IS NULL AND body IS NOT NULL) OR
+    (cancelled_at IS NOT NULL AND deleted_at IS NULL AND body IS NULL) OR
+    (cancelled_at IS NULL AND deleted_at IS NOT NULL AND body IS NULL));
 CREATE INDEX chat_messages_reply ON public.chat_messages(reply_to_message_id) WHERE reply_to_message_id IS NOT NULL;
 
 CREATE TABLE public.chat_message_reactions (
@@ -62,7 +65,7 @@ BEGIN
   IF FOUND THEN
     IF msg.conversation_id<>cid OR msg.sender_id<>auth.uid()
       OR msg.reply_to_message_id IS DISTINCT FROM reply_to OR msg.is_forwarded<>forwarded
-      OR (msg.cancelled_at IS NULL AND (msg.body<>content OR msg.message_type<>kind)) THEN
+      OR (msg.cancelled_at IS NULL AND msg.deleted_at IS NULL AND (msg.body<>content OR msg.message_type<>kind)) THEN
       RAISE EXCEPTION 'Message id already used' USING ERRCODE='23505';
     END IF;
     RETURN to_jsonb(msg);
@@ -70,7 +73,7 @@ BEGIN
   IF reply_to IS NOT NULL THEN
     SELECT * INTO target FROM public.chat_messages m WHERE m.id=reply_to AND m.conversation_id=cid;
     IF NOT FOUND THEN RAISE EXCEPTION 'Reply unavailable' USING ERRCODE='22023'; END IF;
-    IF target.cancelled_at IS NOT NULL THEN RAISE EXCEPTION 'Message cancelled' USING ERRCODE='PCH02'; END IF;
+    IF target.cancelled_at IS NOT NULL OR target.deleted_at IS NOT NULL THEN RAISE EXCEPTION 'Message cancelled' USING ERRCODE='PCH02'; END IF;
   END IF;
   at_time:=GREATEST(clock_timestamp(),c.last_message_at);
   UPDATE public.chat_conversations SET last_message_seq=last_message_seq+1,last_message_at=at_time,updated_at=at_time
@@ -126,7 +129,7 @@ BEGIN
   PERFORM public.chat_lock_conversation(cid);
   SELECT * INTO msg FROM public.chat_messages m WHERE m.id=message_id AND m.conversation_id=cid;
   IF NOT FOUND THEN RAISE EXCEPTION 'Message unavailable' USING ERRCODE='42501'; END IF;
-  IF msg.cancelled_at IS NOT NULL THEN RAISE EXCEPTION 'Message cancelled' USING ERRCODE='PCH02'; END IF;
+  IF msg.cancelled_at IS NOT NULL OR msg.deleted_at IS NOT NULL THEN RAISE EXCEPTION 'Message cancelled' USING ERRCODE='PCH02'; END IF;
   IF chosen IS NOT NULL AND (char_length(chosen) NOT BETWEEN 1 AND 32 OR chosen!~'[^[:space:]]') THEN
     RAISE EXCEPTION 'Invalid reaction' USING ERRCODE='22023';
   END IF;
@@ -146,6 +149,7 @@ BEGIN
   c:=public.chat_lock_conversation(cid);
   SELECT * INTO msg FROM public.chat_messages m WHERE m.id=message_id AND m.conversation_id=cid;
   IF NOT FOUND OR msg.sender_id<>auth.uid() THEN RAISE EXCEPTION 'Message unavailable' USING ERRCODE='42501'; END IF;
+  IF msg.deleted_at IS NOT NULL THEN RAISE EXCEPTION 'Message deleted' USING ERRCODE='PCH02'; END IF;
   IF msg.cancelled_at IS NOT NULL THEN RETURN to_jsonb(msg); END IF;
   peer_read:=CASE WHEN auth.uid()=c.participant_a THEN c.participant_b_read_seq ELSE c.participant_a_read_seq END;
   IF peer_read>=msg.seq THEN RAISE EXCEPTION 'Message already read' USING ERRCODE='PCH01'; END IF;
@@ -153,6 +157,26 @@ BEGIN
     WHERE id=message_id RETURNING * INTO msg;
   UPDATE public.chat_message_reactions SET emoji=NULL,revision=revision+1
     WHERE chat_message_reactions.message_id=chat_cancel_message.message_id AND emoji IS NOT NULL;
+  UPDATE public.chat_conversations SET updated_at=clock_timestamp() WHERE id=cid;
+  RETURN to_jsonb(msg);
+END $$;
+
+-- Post-read delete: distinct from cancellation; sender-only and row retained.
+CREATE FUNCTION public.chat_delete_message(cid uuid,message_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE c public.chat_conversations; msg public.chat_messages; peer_read bigint;
+BEGIN
+  c:=public.chat_lock_conversation(cid);
+  SELECT * INTO msg FROM public.chat_messages m WHERE m.id=message_id AND m.conversation_id=cid;
+  IF NOT FOUND OR msg.sender_id<>auth.uid() THEN RAISE EXCEPTION 'Message unavailable' USING ERRCODE='42501'; END IF;
+  IF msg.cancelled_at IS NOT NULL THEN RAISE EXCEPTION 'Message cancelled' USING ERRCODE='PCH02'; END IF;
+  IF msg.deleted_at IS NOT NULL THEN RETURN to_jsonb(msg); END IF;
+  peer_read:=CASE WHEN auth.uid()=c.participant_a THEN c.participant_b_read_seq ELSE c.participant_a_read_seq END;
+  IF peer_read<msg.seq THEN RAISE EXCEPTION 'Message not yet read' USING ERRCODE='PCH03'; END IF;
+  UPDATE public.chat_messages SET body=NULL,deleted_at=clock_timestamp()
+    WHERE id=message_id RETURNING * INTO msg;
+  UPDATE public.chat_message_reactions SET emoji=NULL,revision=revision+1
+    WHERE chat_message_reactions.message_id=chat_delete_message.message_id AND emoji IS NOT NULL;
   UPDATE public.chat_conversations SET updated_at=clock_timestamp() WHERE id=cid;
   RETURN to_jsonb(msg);
 END $$;
@@ -171,7 +195,7 @@ BEGIN
   PERFORM public.chat_lock_conversation(cid);
   SELECT * INTO source FROM public.chat_messages m WHERE m.id=message_id AND m.conversation_id=cid;
   IF NOT FOUND THEN RAISE EXCEPTION 'Message unavailable' USING ERRCODE='42501'; END IF;
-  IF source.cancelled_at IS NOT NULL THEN RAISE EXCEPTION 'Message cancelled' USING ERRCODE='PCH02'; END IF;
+  IF source.cancelled_at IS NOT NULL OR source.deleted_at IS NOT NULL THEN RAISE EXCEPTION 'Message cancelled' USING ERRCODE='PCH02'; END IF;
   RETURN public.chat_insert_message(target,source.body,source.message_type,forward_id,NULL,true);
 END $$;
 
@@ -181,6 +205,7 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS
     'own_delivered_seq',CASE WHEN auth.uid()=c.participant_a THEN c.participant_a_delivered_seq ELSE c.participant_b_delivered_seq END,
     'peer_delivered_seq',CASE WHEN auth.uid()=c.participant_a THEN c.participant_b_delivered_seq ELSE c.participant_a_delivered_seq END,
     'peer_read_seq',CASE WHEN auth.uid()=c.participant_a THEN c.participant_b_read_seq ELSE c.participant_a_read_seq END,
+    'last_deleted_at',(SELECT m.deleted_at FROM public.chat_messages m WHERE m.conversation_id=c.id ORDER BY m.seq DESC LIMIT 1),
     'last_cancelled_at',(SELECT m.cancelled_at FROM public.chat_messages m WHERE m.conversation_id=c.id ORDER BY m.seq DESC LIMIT 1)
   ) ORDER BY COALESCE(c.last_message_at,c.created_at) DESC,c.id),'[]'::jsonb)
   FROM public.chat_list_conversations(ws) legacy JOIN public.chat_conversations c ON c.id=legacy.id
@@ -202,11 +227,11 @@ END $$;
 REVOKE ALL ON FUNCTION public.chat_insert_message(uuid,text,text,uuid,uuid,boolean) FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.chat_send_message_v2(uuid,text,text,uuid,uuid),public.chat_send_message(uuid,text,text,uuid),
   public.chat_mark_delivered(uuid,bigint),public.chat_mark_read(uuid,bigint),public.chat_set_reaction(uuid,uuid,text),
-  public.chat_cancel_message(uuid,uuid),public.chat_forward_message(uuid,uuid,uuid,uuid),
+  public.chat_cancel_message(uuid,uuid),public.chat_delete_message(uuid,uuid),public.chat_forward_message(uuid,uuid,uuid,uuid),
   public.chat_list_conversations_v2(uuid),public.chat_list_contacts(uuid) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.chat_send_message_v2(uuid,text,text,uuid,uuid),public.chat_send_message(uuid,text,text,uuid),
   public.chat_mark_delivered(uuid,bigint),public.chat_mark_read(uuid,bigint),public.chat_set_reaction(uuid,uuid,text),
-  public.chat_cancel_message(uuid,uuid),public.chat_forward_message(uuid,uuid,uuid,uuid),
+  public.chat_cancel_message(uuid,uuid),public.chat_delete_message(uuid,uuid),public.chat_forward_message(uuid,uuid,uuid,uuid),
   public.chat_list_conversations_v2(uuid),public.chat_list_contacts(uuid) TO authenticated;
 DO $$ BEGIN
   IF NOT EXISTS(SELECT 1 FROM pg_publication WHERE pubname='supabase_realtime') THEN

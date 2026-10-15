@@ -160,6 +160,17 @@ def run():
             holder.wait(timeout=10)
             assert holder.returncode==0,holder.stderr.read()
             sql("SELECT public._chat_assert((SELECT body='read race' AND cancelled_at IS NULL FROM public.chat_messages WHERE id='"+row['id']+"'),'read-winning race preserves message content');")
+            # A concurrent committed read must be visible to post-read delete
+            # after waiting for the same conversation row lock.
+            row=json.loads(sql(auth(actor_a)+"SELECT public.chat_send_message('"+cid_ab+"','delete race','text',gen_random_uuid());"))
+            holder=subprocess.Popen(psql,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+            holder.stdin.write("BEGIN; "+auth(actor_b)+"DO $$ BEGIN PERFORM public.chat_mark_read('"+cid_ab+"',"+str(row['seq'])+"); END $$; SELECT 'delete_read_locked'; SELECT pg_sleep(1); COMMIT;")
+            holder.stdin.close()
+            assert holder.stdout.readline().strip()=='delete_read_locked'
+            sql(auth(actor_a)+"SELECT public.chat_delete_message('"+cid_ab+"','"+row['id']+"');")
+            holder.wait(timeout=10)
+            assert holder.returncode==0,holder.stderr.read()
+            sql("SELECT public._chat_assert((SELECT body IS NULL AND deleted_at IS NOT NULL AND cancelled_at IS NULL FROM public.chat_messages WHERE id='"+row['id']+"'),'post-read deletion serializes with concurrent read and retains tombstone');")
             # Both opposite directions must take the same ordered conversation locks.
             cid_ac=sql(auth(actor_a)+"SELECT public.chat_start_conversation('10000000-0000-4000-8000-000000000001','"+actor_c+"');")
             row_ab=json.loads(sql(auth(actor_a)+"SELECT public.chat_send_message('"+cid_ab+"','forward race AB','text',gen_random_uuid());"))

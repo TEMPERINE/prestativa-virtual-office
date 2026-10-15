@@ -3,6 +3,7 @@ import { ArrowLeft, Check, Loader2, Send, Smile, Sticker } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { SpriteAvatar } from "@/components/profile/SpriteAvatar";
+import { isMessageRemoved } from "@/lib/chat/message-state";
 import { CHAT_MAX_LENGTH, type ChatConversation } from "@/lib/chat/types";
 import type { ChatState, ChatStore } from "@/lib/chat/store";
 import { CHAT_STICKERS, findChatSticker } from "@/lib/chat/stickers";
@@ -204,11 +205,13 @@ export function ChatThread({
                 {replying?.sender_id === userId ? "Você" : conversation.peer_name}
               </p>
               <p className="truncate">
-                {replying?.cancelled_at
-                  ? "Mensagem cancelada"
-                  : replying?.message_type === "sticker"
-                    ? `Sticker · ${findChatSticker(replying.body ?? "")?.label ?? ""}`
-                    : (replying?.body?.slice(0, 160) ?? "Mensagem indisponível")}
+                {replying?.deleted_at
+                  ? "Mensagem apagada"
+                  : replying?.cancelled_at
+                    ? "Mensagem cancelada"
+                    : replying?.message_type === "sticker"
+                      ? `Sticker · ${findChatSticker(replying.body ?? "")?.label ?? ""}`
+                      : (replying?.body?.slice(0, 160) ?? "Mensagem indisponível")}
               </p>
             </div>
             <button
@@ -311,7 +314,7 @@ export function ChatThread({
           <Button
             size="sm"
             aria-label="Enviar mensagem"
-            disabled={state.sending || !text.trim() || !!replying?.cancelled_at}
+            disabled={state.sending || !text.trim() || (!!replying && isMessageRemoved(replying))}
             onClick={() => void send()}
           >
             {state.sending ? (

@@ -113,11 +113,13 @@ export function ChatPanel({
                   {conversation.peer_name}
                 </span>
                 <span className="mt-1 block truncate text-[11px] text-muted-foreground">
-                  {conversation.last_cancelled_at
-                    ? "Mensagem cancelada"
-                    : conversation.last_type === "sticker"
-                      ? `Sticker · ${findChatSticker(conversation.last_body ?? "")?.label ?? ""}`
-                      : (conversation.last_body ?? "Comece uma conversa")}
+                  {conversation.last_deleted_at
+                    ? "Mensagem apagada"
+                    : conversation.last_cancelled_at
+                      ? "Mensagem cancelada"
+                      : conversation.last_type === "sticker"
+                        ? `Sticker · ${findChatSticker(conversation.last_body ?? "")?.label ?? ""}`
+                        : (conversation.last_body ?? "Comece uma conversa")}
                 </span>
               </span>
               {conversation.unread_count > 0 && (

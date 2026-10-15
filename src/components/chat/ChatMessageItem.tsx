@@ -1,6 +1,6 @@
 import { Check, CheckCheck } from "lucide-react";
 import { findChatSticker } from "@/lib/chat/stickers";
-import { messageReceipt } from "@/lib/chat/message-state";
+import { messageReceipt, isMessageRemoved } from "@/lib/chat/message-state";
 import type { ChatMessage, ChatConversation } from "@/lib/chat/types";
 import type { ChatState, ChatStore } from "@/lib/chat/store";
 import { MessageActions } from "./MessageActions";
@@ -41,6 +41,7 @@ export function ChatMessageItem({
   onOverlayChange: (id: string, open: boolean) => void;
 }) {
   const own = message.sender_id === userId;
+  const removed = isMessageRemoved(message);
   const original = message.reply_to_message_id
     ? [...state.messages, ...(state.replyMessages ?? [])].find(
         (m) => m.id === message.reply_to_message_id,
@@ -65,7 +66,7 @@ export function ChatMessageItem({
       className={`group flex ${own ? "justify-end" : "justify-start"}`}
     >
       <div
-        className={`relative max-w-[85%] rounded-2xl px-3 py-2 ${own ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted text-foreground"}`}
+        className={`relative max-w-[85%] rounded-2xl px-3 py-2 ${reactions.size && !removed ? "mb-3" : ""} ${own ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted text-foreground"}`}
       >
         <MessageActions
           message={message}
@@ -77,50 +78,58 @@ export function ChatMessageItem({
           onReply={onReply}
           onOverlayChange={onOverlayChange}
         />
-        {message.is_forwarded && !message.cancelled_at && (
-          <p className="mb-1 pr-5 text-[10px] italic opacity-75">Encaminhada</p>
+        {message.is_forwarded && !removed && (
+          <p className="mb-1 pr-10 text-[10px] italic opacity-75">Encaminhada</p>
         )}
-        {message.reply_to_message_id && !message.cancelled_at && (
+        {message.reply_to_message_id && !removed && (
           <button
             type="button"
             aria-label={`Ver mensagem respondida ${message.reply_to_message_id}`}
-            className="mb-2 block w-full rounded border-l-2 border-current bg-background/15 px-2 py-1 text-left text-xs"
+            className="mb-2 block w-full rounded border-l-2 border-current bg-background/15 pl-2 pr-10 py-1 text-left text-xs"
             onClick={() => onJump(message.reply_to_message_id!)}
           >
             <span className="block font-semibold">
               {original?.sender_id === userId ? "Você" : conversation.peer_name}
             </span>
             <span className="line-clamp-2">
-              {original?.cancelled_at
-                ? "Mensagem cancelada"
-                : original?.message_type === "sticker"
-                  ? `Sticker · ${findChatSticker(original.body ?? "")?.label ?? ""}`
-                  : (original?.body?.slice(0, 160) ?? "Carregando mensagem…")}
+              {original?.deleted_at
+                ? "Mensagem apagada"
+                : original?.cancelled_at
+                  ? "Mensagem cancelada"
+                  : original?.message_type === "sticker"
+                    ? `Sticker · ${findChatSticker(original.body ?? "")?.label ?? ""}`
+                    : (original?.body?.slice(0, 160) ?? "Carregando mensagem…")}
             </span>
           </button>
         )}
-        {message.cancelled_at ? (
+        {removed ? (
           <p className="pr-5 text-sm italic opacity-75">
-            {own ? "Você cancelou esta mensagem" : "Esta mensagem foi cancelada"}
+            {message.deleted_at
+              ? own
+                ? "Você apagou esta mensagem"
+                : "Mensagem apagada"
+              : own
+                ? "Você cancelou esta mensagem"
+                : "Esta mensagem foi cancelada"}
           </p>
         ) : message.message_type === "sticker" ? (
           <StaticSticker id={message.body ?? ""} />
         ) : (
-          <p className="whitespace-pre-wrap break-words pr-4 text-sm [overflow-wrap:anywhere]">
+          <p className="whitespace-pre-wrap break-words pr-10 text-sm [overflow-wrap:anywhere]">
             {message.body}
           </p>
         )}
-        <div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-80">
-          <time dateTime={message.created_at}>
+        <div className="mt-1 flex items-center justify-end gap-1 text-[10px]">
+          <time className="opacity-75" dateTime={message.created_at}>
             {Number.isNaN(date.getTime())
               ? ""
               : date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
           </time>
-          {own && !message.cancelled_at && (
+          {own && !removed && (
             <span
               aria-label={label}
               title={label}
-              className={receipt === "read" ? "text-sky-200" : ""}
+              className={`inline-flex rounded-sm bg-white px-0.5 dark:bg-slate-950 ${receipt === "read" ? "text-blue-700 dark:text-blue-400" : "text-gray-600 dark:text-slate-400"}`}
             >
               {receipt === "sent" ? (
                 <Check className="h-3.5 w-3.5" />
@@ -130,8 +139,11 @@ export function ChatMessageItem({
             </span>
           )}
         </div>
-        {!message.cancelled_at && reactions.size > 0 && (
-          <div className="mt-1 flex flex-wrap gap-1">
+        {!removed && reactions.size > 0 && (
+          <div
+            aria-label={`Reações da mensagem ${message.seq}`}
+            className={`absolute -bottom-3 flex items-center gap-0.5 rounded-full border bg-background px-1 py-0.5 text-foreground shadow-sm ${own ? "right-2" : "left-2"}`}
+          >
             {[...reactions].map(([emoji, data]) => (
               <button
                 key={emoji}
@@ -139,12 +151,15 @@ export function ChatMessageItem({
                 disabled={!state.interactions || state.actionsPending?.includes(message.id)}
                 aria-label={`Reação ${emoji} (${data.count})`}
                 aria-pressed={data.mine}
-                className={`rounded-full border px-1.5 py-0.5 text-xs ${data.mine ? "border-current bg-background/20" : "border-transparent bg-background/10"}`}
+                className={`rounded-full px-0.5 text-xs ${data.mine ? "bg-primary/15 ring-1 ring-primary/30" : "hover:bg-muted"}`}
                 onClick={() => void store.react(message.id, emoji)}
               >
-                {emoji} {data.count}
+                {emoji}
               </button>
             ))}
+            <span aria-label="Total de reações" className="px-1 text-[10px]">
+              {[...reactions.values()].reduce((total, data) => total + data.count, 0)}
+            </span>
           </div>
         )}
       </div>
