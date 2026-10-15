@@ -27,6 +27,8 @@ export interface OfficeNotificationService {
   setOptedIn(on: boolean): void;
   isAppHidden(): boolean;
   notify(n: OfficeNotification): void;
+  /** Optional future chat capability. Existing join adapters must not receive chat tags. */
+  notifyChat?(n: OfficeNotification): void;
   focusApp(): void;
   dispose?(): void;
 }

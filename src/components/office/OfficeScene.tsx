@@ -1,3 +1,4 @@
+import { OfficeChatButton, useOfficeChat } from "@/components/chat/OfficeChat";
 import { getRtcOnDemand } from "@/lib/rtc/rtc-demand-controller";
 import { MicLevelMeter } from "./MicLevelMeter";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -351,6 +352,7 @@ export function OfficeScene({
   onPanelChange?: (p: OfficePanel | null) => void;
 } = {}) {
   const officeTheme = useOfficeTheme();
+  const officeChat = useOfficeChat();
   // Painel aberto bloqueia só o input local de movimento (avatar/RTC intactos).
   const panelRef = useRef(panel);
   panelRef.current = panel;
@@ -3280,6 +3282,7 @@ export function OfficeScene({
                           onFollow={() => { startFollowing(profile.id); setAvatarMenuUid(null); }}
                           onLead={() => { requestLead(profile.id); setAvatarMenuUid(null); }}
                           onJoin={() => { requestJoin(profile.id); setAvatarMenuUid(null); }}
+                          onMessage={officeChat ? () => { officeChat.openPeer(profile.id); setAvatarMenuUid(null); } : undefined}
                         />
                       }
                     />
@@ -3875,6 +3878,7 @@ export function OfficeScene({
           </div>
 
           <div className="flex items-center gap-1">
+            <OfficeChatButton />
             {(() => {
               const s = rtc.connectionStatus;
               const peers = audibleConnectedPeers.length;
@@ -4549,12 +4553,14 @@ function AvatarInteractionMenu({
   onFollow,
   onLead,
   onJoin,
+  onMessage,
 }: {
   profile: Profile;
   onClose: () => void;
   onFollow: () => void;
   onLead: () => void;
   onJoin: () => void;
+  onMessage?: () => void;
 }) {
   return (
     <div
@@ -4578,6 +4584,7 @@ function AvatarInteractionMenu({
         </button>
       </div>
       <div className="p-1">
+        {onMessage && <button type="button" onClick={onMessage} className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded hover:bg-muted text-left"><MessageCircle className="w-4 h-4" /> Enviar mensagem</button>}
         <button
           type="button"
           onClick={() => {

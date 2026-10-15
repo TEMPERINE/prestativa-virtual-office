@@ -1,3 +1,4 @@
+import { OfficeChat } from "@/components/chat/OfficeChat";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { OfficeScene } from "@/components/office/OfficeScene";
@@ -40,10 +41,10 @@ function WorkspaceScenePage() {
     }
   }, [navigate]);
   useEffect(() => {
-    if (panel !== "meetings") return;
+    if (panel !== "meetings" && panel !== "chat") return;
     const onEsc = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+      if (document.querySelector('[role="dialog"]:not([data-office-chat-panel]), [role="alertdialog"], [role="menu"]')) return;
       setPanel(null);
     };
     window.addEventListener("keydown", onEsc);
@@ -154,7 +155,7 @@ function WorkspaceScenePage() {
   }
 
   return (
-    <>
+    <OfficeChat workspaceId={workspaceId} userId={userId!} panel={panel ?? null} onPanelChange={setPanel}>
       <div style={{ visibility: ready ? "visible" : "hidden" }}>
         <OfficeScene
           onHydrated={handleHydrated}
@@ -185,6 +186,6 @@ function WorkspaceScenePage() {
           onReady={() => setReady(true)}
         />
       )}
-    </>
+    </OfficeChat>
   );
 }
