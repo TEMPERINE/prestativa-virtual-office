@@ -5,7 +5,7 @@ import { SmilePlus } from "lucide-react";
 import { AppleEmoji } from "./AppleEmoji";
 
 const QUICK = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
-const GAP = 8; // distance between bubble and pill
+const GAP = 4; // distance between bubble and pill
 const EDGE = 8; // keep fully visible inside the viewport
 
 /** Pure placement: above the bubble (start/end aligned), below if no room, clamped to viewport. */
@@ -49,6 +49,7 @@ export function MessageReactionBar({
   const anchorRef = useRef<HTMLSpanElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const probeRef = useRef<HTMLSpanElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number; side: "top" | "bottom" } | null>(
     null,
   );
@@ -64,12 +65,16 @@ export function MessageReactionBar({
     const c = contentRef.current;
     if (!a || !c) return;
     const r = a.getBoundingClientRect();
-    const next = placeReactionBar(
+    // A transformed host (draggable Chat) becomes the containing block of
+    // position:fixed; measure its origin so the bar stays glued to the bubble.
+    const o = probeRef.current?.getBoundingClientRect() ?? { top: 0, left: 0 };
+    const placed = placeReactionBar(
       r,
       { width: c.offsetWidth, height: c.offsetHeight },
       { width: window.innerWidth, height: window.innerHeight },
       own,
     );
+    const next = { ...placed, top: placed.top - o.top, left: placed.left - o.left };
     setPos((old) =>
       old && old.top === next.top && old.left === next.left && old.side === next.side
         ? old
@@ -143,6 +148,12 @@ export function MessageReactionBar({
       </button>
       {open &&
         createPortal(
+          <>
+          <span
+            ref={probeRef}
+            aria-hidden
+            style={{ position: "fixed", top: 0, left: 0, width: 0, height: 0, pointerEvents: "none" }}
+          />
           <div
             ref={contentRef}
             role="dialog"
@@ -156,22 +167,22 @@ export function MessageReactionBar({
               visibility: pos ? "visible" : "hidden",
               transformOrigin: `${own ? "right" : "left"} ${pos?.side === "bottom" ? "top" : "bottom"}`,
             }}
-            className={`chat-reaction-pop z-[380] max-h-[80dvh] max-w-[calc(100vw-16px)] overflow-y-auto border border-border/60 bg-popover text-popover-foreground shadow-[0_4px_16px_-4px_hsl(0_0%_0%/0.25)] ${expanded ? "rounded-2xl p-1.5" : "rounded-full px-1.5 py-1"}`}
+            className={`chat-reaction-pop z-[380] max-h-[80dvh] max-w-[calc(100vw-16px)] overflow-y-auto border border-border/60 bg-popover text-popover-foreground shadow-[0_2px_8px_hsl(0_0%_0%/0.16)] ${expanded ? "rounded-2xl p-1.5" : "rounded-full px-2 py-1"}`}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
           >
-            <div role="toolbar" aria-label="Reações rápidas" className="flex items-center gap-1">
+            <div role="toolbar" aria-label="Reações rápidas" className="flex items-center gap-0.5">
               {QUICK.map((emoji) => (
                 <button
                   key={emoji}
                   type="button"
                   aria-label={`Reagir com ${emoji}`}
                   disabled={busy}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-transform duration-150 hover:scale-110 hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-transform duration-150 hover:scale-110 hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
                   onClick={() => choose(emoji)}
                 >
-                  <AppleEmoji emoji={emoji} size={26} />
+                  <AppleEmoji emoji={emoji} size={24} />
                 </button>
               ))}
               <button
@@ -198,7 +209,8 @@ export function MessageReactionBar({
                 />
               </div>
             )}
-          </div>,
+          </div>
+          </>,
           host,
         )}
     </>
