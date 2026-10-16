@@ -36,6 +36,13 @@
       "when": 1792192337283,
       "tag": "0004_office_chat_interactions",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792193494571,
+      "tag": "0005_chat_list_contacts_valid_profiles",
+      "breakpoints": true
     }
   ]
 }
