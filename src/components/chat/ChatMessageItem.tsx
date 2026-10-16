@@ -143,17 +143,16 @@ export function ChatMessageItem({
         {!removed && reactions.size > 0 && (
           <div
             aria-label={`Reações da mensagem ${message.seq}`}
-            key={[...reactions].map(([e, d]) => e + d.count).join("|")}
-            className={`chat-reaction-badge absolute -bottom-[18px] z-[1] flex h-[22px] items-center gap-px rounded-full border border-border/60 bg-popover px-1 text-popover-foreground shadow-[0_1px_3px_hsl(0_0%_0%/0.18)] ${own ? "right-2" : "left-2"}`}
+            className={`absolute -bottom-[18px] z-[1] flex h-[22px] items-center gap-px rounded-full border border-border/60 bg-popover px-1 text-popover-foreground shadow-[0_1px_3px_hsl(0_0%_0%/0.18)] ${own ? "right-2" : "left-2"}`}
           >
             {[...reactions].map(([emoji, data]) => (
               <button
-                key={emoji}
+                key={emoji + data.count}
                 type="button"
                 disabled={!state.interactions || state.actionsPending?.includes(message.id)}
                 aria-label={`Reação ${emoji} (${data.count})`}
                 aria-pressed={data.mine}
-                className={`flex h-[18px] items-center rounded-full px-px ${data.mine ? "bg-primary/15" : "hover:bg-muted"}`}
+                className={`chat-reaction-badge flex h-[18px] items-center rounded-full px-px ${data.mine ? "bg-primary/15" : "hover:bg-muted"}`}
                 onClick={() => void store.react(message.id, emoji)}
               >
                 <AppleEmoji emoji={emoji} size={15} />
