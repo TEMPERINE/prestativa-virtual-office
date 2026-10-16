@@ -106,6 +106,17 @@ function Shell({
 }
 const mounts = () => ({ mount: vi.fn(), unmount: vi.fn() });
 
+// The real picker virtualizes its grid, which jsdom cannot measure.
+vi.mock("emoji-picker-react", () => ({
+  default: ({ onEmojiClick }: { onEmojiClick: (v: { emoji: string }) => void }) => (
+    <button type="button" onClick={() => onEmojiClick({ emoji: "😊" })}>
+      Picker 😊
+    </button>
+  ),
+  EmojiStyle: { APPLE: "apple" },
+  Theme: { AUTO: "auto" },
+}));
+
 it("real chat shell keeps its Office child mounted across open, close and reopen", async () => {
   const s = services(),
     m = mounts();
@@ -129,7 +140,7 @@ it("sends text and emojis through the same conversation, then a static sticker",
   const input = await screen.findByRole("textbox", { name: "Mensagem" });
   fireEvent.change(input, { target: { value: "Olá" } });
   fireEvent.click(screen.getByLabelText("Adicionar emoji"));
-  fireEvent.click(screen.getByRole("button", { name: "Emoji 😊" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Picker 😊" }));
   fireEvent.click(screen.getByRole("button", { name: "Enviar mensagem" }));
   await waitFor(() =>
     expect(s.api.send).toHaveBeenCalledWith("c", "Olá😊", "text", expect.any(String)),

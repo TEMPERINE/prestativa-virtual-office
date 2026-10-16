@@ -1,3 +1,4 @@
+import { AppleEmoji } from "./AppleEmoji";
 import { Check, CheckCheck } from "lucide-react";
 import { findChatSticker } from "@/lib/chat/stickers";
 import { messageReceipt, isMessageRemoved } from "@/lib/chat/message-state";
@@ -154,7 +155,7 @@ export function ChatMessageItem({
                 className={`rounded-full px-0.5 text-xs ${data.mine ? "bg-primary/15 ring-1 ring-primary/30" : "hover:bg-muted"}`}
                 onClick={() => void store.react(message.id, emoji)}
               >
-                {emoji}
+                <AppleEmoji emoji={emoji} size={16} />
               </button>
             ))}
             <span aria-label="Total de reações" className="px-1 text-[10px]">
