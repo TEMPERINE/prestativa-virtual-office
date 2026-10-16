@@ -2420,10 +2420,10 @@ export function OfficeScene({
         teleportToZone("reuniao", "Sala de Reunião");
         return;
       }
-      // Ctrl + F — teleport to feedback room
+      // Ctrl + F — teleport to the decompression room
       if (key === "f" && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
         e.preventDefault();
-        teleportToZone("feedback", "Sala de Feedback");
+        teleportToZone("descompressao", "Área de Descompressão");
         return;
       }
       const emoji = EMOJI_MAP[key];
