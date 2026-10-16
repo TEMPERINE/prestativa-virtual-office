@@ -254,7 +254,9 @@ it("pins, replaces and unpins; pin bar locates the original message", async () =
   expect(bar.textContent).toContain("Texto da colega");
   fireEvent.click(within(await menu(1)).getByRole("menuitem", { name: "Fixar" }));
   await waitFor(() =>
-    expect(screen.getByLabelText("Ir para a mensagem fixada").textContent).toContain("Olá original"),
+    expect(screen.getByLabelText("Ir para a mensagem fixada").textContent).toContain(
+      "Olá original",
+    ),
   );
   expect(screen.getAllByLabelText("Mensagem fixada")).toHaveLength(1);
   fireEvent.click(screen.getByLabelText("Ir para a mensagem fixada"));
