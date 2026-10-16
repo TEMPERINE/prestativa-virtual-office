@@ -223,8 +223,9 @@ function customZoneAsZone(id: string): Zone | null {
   };
 }
 
+// Precedence: edited custom-zone entry with the same id > renamed built-in > original.
 function withLabel(z: Zone): Zone {
-  const label = zoneLabelOverride(z.id);
+  const label = customZonesFromOverrides().find((c) => c.id === z.id)?.label?.trim() || zoneLabelOverride(z.id);
   return label ? { ...z, label } : z;
 }
 
