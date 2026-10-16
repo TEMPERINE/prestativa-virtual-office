@@ -20,6 +20,8 @@ import { createChatNotifier } from "@/lib/chat/notifications";
 import type { ChatApi, ChatRealtime } from "@/lib/chat/types";
 import type { OfficePanel } from "@/lib/office/overlay";
 import { ChatPanel } from "./ChatPanel";
+import { createChatExtrasApi, type ChatExtrasApi } from "@/lib/chat/extras";
+import { ChatExtrasApiContext } from "./chat-extras";
 
 type Actions = {
   openPeer: (userId: string) => void;
@@ -30,7 +32,8 @@ type Actions = {
 const Context = createContext<Actions | null>(null);
 export const useOfficeChat = () => useContext(Context);
 const apiDefault = createChatApi(supabase),
-  realtimeDefault = createChatRealtime(supabase);
+  realtimeDefault = createChatRealtime(supabase),
+  extrasDefault = createChatExtrasApi(supabase);
 const EMPTY: ChatState = {
   conversations: [],
   selectedId: null,
@@ -56,6 +59,7 @@ export function OfficeChat({
   children,
   api = apiDefault,
   realtime = realtimeDefault,
+  extras,
 }: {
   workspaceId: string;
   userId: string;
@@ -64,7 +68,10 @@ export function OfficeChat({
   children: ReactNode;
   api?: ChatApi;
   realtime?: ChatRealtime;
+  extras?: ChatExtrasApi | null;
 }) {
+  // Injected fake APIs (tests) get no implicit network-backed pins/favorites.
+  const extrasApi = extras !== undefined ? extras : api === apiDefault ? extrasDefault : null;
   const panelChange = useRef(onPanelChange);
   panelChange.current = onPanelChange;
   const [session, setSession] = useState<{
@@ -147,15 +154,17 @@ export function OfficeChat({
     <Context.Provider value={actions}>
       {children}
       {panel === "chat" && (
-        <ChatPanel
-          state={state}
-          store={store}
-          userId={userId}
-          onClose={() => {
-            store?.setReading(false);
-            panelChange.current(null);
-          }}
-        />
+        <ChatExtrasApiContext.Provider value={extrasApi}>
+          <ChatPanel
+            state={state}
+            store={store}
+            userId={userId}
+            onClose={() => {
+              store?.setReading(false);
+              panelChange.current(null);
+            }}
+          />
+        </ChatExtrasApiContext.Provider>
       )}
     </Context.Provider>
   );

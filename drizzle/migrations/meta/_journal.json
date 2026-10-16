@@ -43,6 +43,13 @@
       "when": 1792193494571,
       "tag": "0005_chat_list_contacts_valid_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792194199210,
+      "tag": "0006_chat_pins_and_favorites",
+      "breakpoints": true
     }
   ]
 }
