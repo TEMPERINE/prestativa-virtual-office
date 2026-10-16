@@ -79,6 +79,9 @@ import karenDown from "@/assets/sprites/karen-down.png";
 import karenUp from "@/assets/sprites/karen-up.png";
 import karenLeft from "@/assets/sprites/karen-left.png";
 import karenRight from "@/assets/sprites/karen-right.png";
+import lucasDown from "@/assets/sprites/lucas-down.png";
+import lucasUp from "@/assets/sprites/lucas-up.png";
+import lucasLeft from "@/assets/sprites/lucas-left.png";
 
 export type Facing = "up" | "down" | "left" | "right";
 
@@ -312,6 +315,19 @@ export const SPRITES: SpriteDef[] = [
       left: { w: 142, h: 238 },
       right: { w: 136, h: 238 },
     },
+  },
+  {
+    id: "lucas",
+    label: "Lucas",
+    gender: "m",
+    sheets: { up: lucasUp, down: lucasDown, left: lucasLeft, right: lucasLeft },
+    dims: {
+      down: { w: 142, h: 244 },
+      up: { w: 142, h: 250 },
+      left: { w: 150, h: 248 },
+      right: { w: 150, h: 248 },
+    },
+    mirrorRightFromLeft: true,
   },
 ];
 
