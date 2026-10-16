@@ -155,15 +155,15 @@ export function OfficeChat({
       {children}
       {panel === "chat" && (
         <ChatExtrasApiContext.Provider value={extrasApi}>
-        <ChatPanel
-          state={state}
-          store={store}
-          userId={userId}
-          onClose={() => {
-            store?.setReading(false);
-            panelChange.current(null);
-          }}
-        />
+          <ChatPanel
+            state={state}
+            store={store}
+            userId={userId}
+            onClose={() => {
+              store?.setReading(false);
+              panelChange.current(null);
+            }}
+          />
         </ChatExtrasApiContext.Provider>
       )}
     </Context.Provider>

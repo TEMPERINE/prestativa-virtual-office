@@ -1,6 +1,17 @@
 import { useEffect, useState } from "react";
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { ChevronDown, Copy, Forward, Info, Pin, Reply, SmilePlus, Star, Trash2, Undo2 } from "lucide-react";
+import {
+  ChevronDown,
+  Copy,
+  Forward,
+  Info,
+  Pin,
+  Reply,
+  SmilePlus,
+  Star,
+  Trash2,
+  Undo2,
+} from "lucide-react";
 import { isMessageRemoved } from "@/lib/chat/message-state";
 import { MessageReactionBar } from "./MessageReactionBar";
 import { useThreadExtras } from "./chat-extras";

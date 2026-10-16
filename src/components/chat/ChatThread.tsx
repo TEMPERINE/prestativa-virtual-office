@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, Loader2, Send, Smile, Sticker } from "lucide-react";
+import { ArrowLeft, Check, Loader2, Pin, Send, Smile, Star, Sticker, X } from "lucide-react";
+import { useContext } from "react";
+import { ChatExtrasApiContext, ThreadExtrasContext, useConversationExtras } from "./chat-extras";
+import type { ChatMessage } from "@/lib/chat/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { SpriteAvatar } from "@/components/profile/SpriteAvatar";
@@ -24,6 +27,43 @@ export function ChatThread({
   userId: string;
   portalHost: Element;
 }) {
+  const extrasApi = useContext(ChatExtrasApiContext);
+  const extras = useConversationExtras(extrasApi, conversation.id);
+  const [pinMessage, setPinMessage] = useState<ChatMessage | null>(null);
+  const [favoritesOpen, setFavoritesOpen] = useState(false);
+  const [favoriteRows, setFavoriteRows] = useState<ChatMessage[] | null>(null);
+  const pinId = extras?.pin?.message_id ?? null;
+  useEffect(() => {
+    if (!pinId) return setPinMessage(null);
+    const local = [...state.messages, ...(state.replyMessages ?? [])].find((m) => m.id === pinId);
+    if (local) return setPinMessage(local);
+    let alive = true;
+    void extrasApi
+      ?.messages(conversation.id, [pinId])
+      .then((rows) => alive && setPinMessage(rows[0] ?? null))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [pinId, state.messages, state.replyMessages, extrasApi, conversation.id]);
+  const favoriteKey = [...(extras?.favorites ?? [])].join(",");
+  useEffect(() => {
+    if (!favoritesOpen || !extrasApi) return;
+    let alive = true;
+    setFavoriteRows(null);
+    void extrasApi
+      .favorites(conversation.id)
+      .then(async (ids) => {
+        const rows = await extrasApi.messages(conversation.id, ids);
+        const byId = new Map(rows.map((r) => [r.id, r]));
+        if (alive)
+          setFavoriteRows(ids.map((id) => byId.get(id)).filter((r): r is ChatMessage => !!r));
+      })
+      .catch(() => alive && setFavoriteRows([]));
+    return () => {
+      alive = false;
+    };
+  }, [favoritesOpen, extrasApi, conversation.id, favoriteKey]);
   const [text, setText] = useState("");
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [overlays, setOverlays] = useState(new Set<string>());
@@ -87,6 +127,29 @@ export function ChatThread({
       input.current?.focus();
     }
   }
+  function jump(id: string) {
+    setAtLatest(false);
+    store.setReading(false);
+    void store.revealMessage(id).then((found) => {
+      if (found) {
+        const el = document.getElementById(`chat-message-${id}`);
+        el?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+        el?.focus({ preventScroll: true });
+      }
+    });
+  }
+  const snippet = (m: ChatMessage | null) =>
+    !m
+      ? "Carregando mensagem…"
+      : m.deleted_at
+        ? "Mensagem apagada"
+        : m.cancelled_at
+          ? "Mensagem cancelada"
+          : m.message_type === "sticker"
+            ? `Sticker · ${findChatSticker(m.body ?? "")?.label ?? ""}`
+            : (m.body ?? "").slice(0, 120);
+  const author = (m: ChatMessage | null) =>
+    m?.sender_id === userId ? "Você" : conversation.peer_name;
   function older() {
     if (scroll.current)
       anchor.current = { height: scroll.current.scrollHeight, top: scroll.current.scrollTop };
@@ -95,168 +158,238 @@ export function ChatThread({
     void store.loadOlder();
   }
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex items-center gap-2 border-b px-3 py-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 sm:hidden"
-          aria-label="Voltar às conversas"
-          onClick={() => store.clearSelection()}
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <SpriteAvatar spriteId={conversation.peer_sprite_id} size={36} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{conversation.peer_name}</p>
-          <p className="text-[11px] text-muted-foreground">Conversa privada neste espaço</p>
-        </div>
-        {conversation.unread_count > 0 && (
+    <ThreadExtrasContext.Provider value={extras}>
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <header className="flex items-center gap-2 border-b px-3 py-3">
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Marcar como lida"
-            disabled={state.loading || !state.messages.length}
-            onClick={() => void store.markRead(state.messages.at(-1)?.seq ?? 0)}
+            className="h-8 w-8 sm:hidden"
+            aria-label="Voltar às conversas"
+            onClick={() => store.clearSelection()}
           >
-            <Check className="h-4 w-4" />
+            <ArrowLeft className="h-4 w-4" />
           </Button>
-        )}
-      </header>
-      <div
-        ref={scroll}
-        role="log"
-        aria-label="Histórico da conversa"
-        aria-live="polite"
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3"
-        onScroll={(event) => {
-          if (state.loading || state.loadingOlder) return;
-          const el = event.currentTarget;
-          const latest = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
-          setAtLatest(latest);
-          store.setReading(latest && visible && !state.loading && !blocked);
-        }}
-      >
-        {state.hasMore && (
-          <div className="mb-4 text-center">
-            <Button variant="ghost" size="sm" disabled={state.loadingOlder} onClick={older}>
-              {state.loadingOlder ? "Carregando…" : "Carregar mensagens anteriores"}
-            </Button>
+          <SpriteAvatar spriteId={conversation.peer_sprite_id} size={36} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold">{conversation.peer_name}</p>
+            <p className="text-[11px] text-muted-foreground">Conversa privada neste espaço</p>
           </div>
-        )}
-        {state.loading && state.messages.length === 0 && (
-          <p className="py-8 text-center text-xs text-muted-foreground">Carregando conversa…</p>
-        )}
-        {!state.loading && state.messages.length === 0 && (
-          <p className="py-10 text-center text-xs text-muted-foreground">
-            Tudo pronto para começar a conversa.
-          </p>
-        )}
-        <ol className="space-y-3">
-          {state.messages.map((message) => (
-            <ChatMessageItem
-              key={message.id}
-              message={message}
-              conversation={conversation}
-              state={state}
-              store={store}
-              userId={userId}
-              host={portalHost}
-              onReply={(id) => {
-                setReplyTo(id);
-                input.current?.focus();
-              }}
-              onOverlayChange={onOverlayChange}
-              onJump={(id) => {
-                setAtLatest(false);
-                store.setReading(false);
-                void store.revealMessage(id).then((found) => {
-                  if (found) {
-                    const el = document.getElementById(`chat-message-${id}`);
-                    el?.scrollIntoView?.({ behavior: "smooth", block: "center" });
-                    el?.focus({ preventScroll: true });
-                  }
-                });
-              }}
-            />
-          ))}
-        </ol>
-      </div>
-      {!atLatest && (
-        <button
-          type="button"
-          className="border-t py-2 text-xs text-primary"
-          onClick={() => {
-            setAtLatest(true);
-            if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
-          }}
-        >
-          Ir para as mensagens recentes ↓
-        </button>
-      )}
-      <div className="relative border-t bg-background p-3">
-        {replyTo && (
-          <div
-            aria-label="Respondendo à mensagem"
-            className="mb-2 flex items-center gap-2 rounded-lg border-l-2 border-primary bg-muted px-3 py-2 text-xs"
-          >
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold">
-                {replying?.sender_id === userId ? "Você" : conversation.peer_name}
-              </p>
-              <p className="truncate">
-                {replying?.deleted_at
-                  ? "Mensagem apagada"
-                  : replying?.cancelled_at
-                    ? "Mensagem cancelada"
-                    : replying?.message_type === "sticker"
-                      ? `Sticker · ${findChatSticker(replying.body ?? "")?.label ?? ""}`
-                      : (replying?.body?.slice(0, 160) ?? "Mensagem indisponível")}
-              </p>
-            </div>
-            <button
-              type="button"
-              aria-label="Cancelar resposta"
-              className="rounded p-1 hover:bg-accent"
-              onClick={() => setReplyTo(null)}
+          {extras && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              aria-label="Mensagens favoritas"
+              aria-pressed={favoritesOpen}
+              onClick={() => setFavoritesOpen((v) => !v)}
             >
-              ×
-            </button>
-          </div>
+              <Star className="h-4 w-4" />
+            </Button>
+          )}
+          {conversation.unread_count > 0 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Marcar como lida"
+              disabled={state.loading || !state.messages.length}
+              onClick={() => void store.markRead(state.messages.at(-1)?.seq ?? 0)}
+            >
+              <Check className="h-4 w-4" />
+            </Button>
+          )}
+        </header>
+        {pinId && pinMessage && !isMessageRemoved(pinMessage) && (
+          <button
+            type="button"
+            aria-label="Ir para a mensagem fixada"
+            className="flex items-center gap-2 border-b bg-muted/60 px-4 py-1.5 text-left text-xs hover:bg-muted"
+            onClick={() => jump(pinId)}
+          >
+            <Pin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">
+              <span className="font-semibold">{author(pinMessage)}: </span>
+              {snippet(pinMessage)}
+            </span>
+          </button>
         )}
-        {picker && (
-          <div
-            data-chat-picker
-            className="mb-2 flex flex-wrap gap-1 rounded-xl border bg-muted/50 p-2"
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                event.stopPropagation();
-                setPicker(null);
+        {favoritesOpen && (
+          <section
+            aria-label="Mensagens favoritas"
+            className="absolute inset-x-0 bottom-0 top-[61px] z-10 flex flex-col bg-background"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.stopPropagation();
+                setFavoritesOpen(false);
               }
             }}
           >
-            {picker === "emoji" ? (
-              <div className="w-full overflow-hidden">
-                <EmojiPicker
-                  emojiStyle={EmojiStyle.APPLE}
-                  theme={Theme.AUTO}
-                  width="100%"
-                  height={340}
-                  previewConfig={{ showPreview: false }}
-                  searchPlaceholder="Buscar emoji..."
-                  onEmojiClick={(value) => {
-                    const emoji = value.emoji;
-                    setText((old) =>
-                      old.length + emoji.length <= CHAT_MAX_LENGTH ? old + emoji : old,
-                    );
-                    setPicker(null);
-                    input.current?.focus();
-                  }}
-                />
+            <div className="flex items-center gap-2 border-b px-4 py-2">
+              <Star className="h-4 w-4 text-muted-foreground" />
+              <p className="flex-1 text-sm font-semibold">Mensagens favoritas</p>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                aria-label="Fechar favoritas"
+                onClick={() => setFavoritesOpen(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-2">
+              {favoriteRows === null ? (
+                <p className="py-6 text-center text-xs text-muted-foreground">Carregando…</p>
+              ) : favoriteRows.length === 0 ? (
+                <p className="py-6 text-center text-xs text-muted-foreground">
+                  Nenhuma mensagem favoritada nesta conversa.
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {favoriteRows.map((m) => (
+                    <li key={m.id}>
+                      <button
+                        type="button"
+                        className="w-full rounded-lg px-3 py-2 text-left hover:bg-muted"
+                        onClick={() => {
+                          setFavoritesOpen(false);
+                          jump(m.id);
+                        }}
+                      >
+                        <span className="block text-xs font-semibold">{author(m)}</span>
+                        <span className="line-clamp-2 text-sm">{snippet(m)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+        )}
+        <div
+          ref={scroll}
+          role="log"
+          aria-label="Histórico da conversa"
+          aria-live="polite"
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3"
+          onScroll={(event) => {
+            if (state.loading || state.loadingOlder) return;
+            const el = event.currentTarget;
+            const latest = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+            setAtLatest(latest);
+            store.setReading(latest && visible && !state.loading && !blocked);
+          }}
+        >
+          {state.hasMore && (
+            <div className="mb-4 text-center">
+              <Button variant="ghost" size="sm" disabled={state.loadingOlder} onClick={older}>
+                {state.loadingOlder ? "Carregando…" : "Carregar mensagens anteriores"}
+              </Button>
+            </div>
+          )}
+          {state.loading && state.messages.length === 0 && (
+            <p className="py-8 text-center text-xs text-muted-foreground">Carregando conversa…</p>
+          )}
+          {!state.loading && state.messages.length === 0 && (
+            <p className="py-10 text-center text-xs text-muted-foreground">
+              Tudo pronto para começar a conversa.
+            </p>
+          )}
+          <ol className="space-y-3">
+            {state.messages.map((message) => (
+              <ChatMessageItem
+                key={message.id}
+                message={message}
+                conversation={conversation}
+                state={state}
+                store={store}
+                userId={userId}
+                host={portalHost}
+                onReply={(id) => {
+                  setReplyTo(id);
+                  input.current?.focus();
+                }}
+                onOverlayChange={onOverlayChange}
+                onJump={jump}
+              />
+            ))}
+          </ol>
+        </div>
+        {!atLatest && (
+          <button
+            type="button"
+            className="border-t py-2 text-xs text-primary"
+            onClick={() => {
+              setAtLatest(true);
+              if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
+            }}
+          >
+            Ir para as mensagens recentes ↓
+          </button>
+        )}
+        <div className="relative border-t bg-background p-3">
+          {replyTo && (
+            <div
+              aria-label="Respondendo à mensagem"
+              className="mb-2 flex items-center gap-2 rounded-lg border-l-2 border-primary bg-muted px-3 py-2 text-xs"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold">
+                  {replying?.sender_id === userId ? "Você" : conversation.peer_name}
+                </p>
+                <p className="truncate">
+                  {replying?.deleted_at
+                    ? "Mensagem apagada"
+                    : replying?.cancelled_at
+                      ? "Mensagem cancelada"
+                      : replying?.message_type === "sticker"
+                        ? `Sticker · ${findChatSticker(replying.body ?? "")?.label ?? ""}`
+                        : (replying?.body?.slice(0, 160) ?? "Mensagem indisponível")}
+                </p>
               </div>
-            ) : (
-              CHAT_STICKERS.map((sticker) => (
+              <button
+                type="button"
+                aria-label="Cancelar resposta"
+                className="rounded p-1 hover:bg-accent"
+                onClick={() => setReplyTo(null)}
+              >
+                ×
+              </button>
+            </div>
+          )}
+          {picker && (
+            <div
+              data-chat-picker
+              className="mb-2 flex flex-wrap gap-1 rounded-xl border bg-muted/50 p-2"
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setPicker(null);
+                }
+              }}
+            >
+              {picker === "emoji" ? (
+                <div className="w-full overflow-hidden">
+                  <EmojiPicker
+                    emojiStyle={EmojiStyle.APPLE}
+                    theme={Theme.AUTO}
+                    width="100%"
+                    height={340}
+                    previewConfig={{ showPreview: false }}
+                    searchPlaceholder="Buscar emoji..."
+                    onEmojiClick={(value) => {
+                      const emoji = value.emoji;
+                      setText((old) =>
+                        old.length + emoji.length <= CHAT_MAX_LENGTH ? old + emoji : old,
+                      );
+                      setPicker(null);
+                      input.current?.focus();
+                    }}
+                  />
+                </div>
+              ) : (
+                CHAT_STICKERS.map((sticker) => (
                   <button
                     key={sticker.id}
                     type="button"
@@ -267,67 +400,68 @@ export function ChatThread({
                   >
                     <StaticSticker id={sticker.id} />
                   </button>
-              ))
-            )}
+                ))
+              )}
+            </div>
+          )}
+          <label className="sr-only" htmlFor="office-chat-message">
+            Mensagem
+          </label>
+          <Textarea
+            id="office-chat-message"
+            ref={input}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            maxLength={CHAT_MAX_LENGTH}
+            disabled={state.sending}
+            autoFocus
+            rows={2}
+            className="min-h-[64px] resize-none rounded-xl text-sm"
+            placeholder="Escreva uma mensagem…"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                void send();
+              }
+            }}
+          />
+          <div className="mt-2 flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Adicionar emoji"
+              disabled={state.sending}
+              onClick={() => setPicker((value) => (value === "emoji" ? null : "emoji"))}
+            >
+              <Smile className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Enviar sticker"
+              disabled={state.sending}
+              onClick={() => setPicker((value) => (value === "sticker" ? null : "sticker"))}
+            >
+              <Sticker className="h-4 w-4" />
+            </Button>
+            <span className="ml-auto mr-2 text-[10px] text-muted-foreground">
+              {text.length}/{CHAT_MAX_LENGTH}
+            </span>
+            <Button
+              size="sm"
+              aria-label="Enviar mensagem"
+              disabled={state.sending || !text.trim() || (!!replying && isMessageRemoved(replying))}
+              onClick={() => void send()}
+            >
+              {state.sending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </Button>
           </div>
-        )}
-        <label className="sr-only" htmlFor="office-chat-message">
-          Mensagem
-        </label>
-        <Textarea
-          id="office-chat-message"
-          ref={input}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          maxLength={CHAT_MAX_LENGTH}
-          disabled={state.sending}
-          autoFocus
-          rows={2}
-          className="min-h-[64px] resize-none rounded-xl text-sm"
-          placeholder="Escreva uma mensagem…"
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              void send();
-            }
-          }}
-        />
-        <div className="mt-2 flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Adicionar emoji"
-            disabled={state.sending}
-            onClick={() => setPicker((value) => (value === "emoji" ? null : "emoji"))}
-          >
-            <Smile className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Enviar sticker"
-            disabled={state.sending}
-            onClick={() => setPicker((value) => (value === "sticker" ? null : "sticker"))}
-          >
-            <Sticker className="h-4 w-4" />
-          </Button>
-          <span className="ml-auto mr-2 text-[10px] text-muted-foreground">
-            {text.length}/{CHAT_MAX_LENGTH}
-          </span>
-          <Button
-            size="sm"
-            aria-label="Enviar mensagem"
-            disabled={state.sending || !text.trim() || (!!replying && isMessageRemoved(replying))}
-            onClick={() => void send()}
-          >
-            {state.sending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-          </Button>
         </div>
       </div>
-    </div>
+    </ThreadExtrasContext.Provider>
   );
 }

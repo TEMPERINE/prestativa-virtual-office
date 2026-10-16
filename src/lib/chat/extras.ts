@@ -80,9 +80,15 @@ export function createChatExtrasApi(typed: SupabaseClient<Database>): ChatExtras
         .channel(`office-chat:pin:${cid}:${++seq}`)
         .on(
           "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "chat_conversations", filter: `id=eq.${cid}` },
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "chat_conversations",
+            filter: `id=eq.${cid}`,
+          },
           (payload) => {
-            if (!closed && (payload.new as { id?: string }).id === cid) changed(parsePin(payload.new));
+            if (!closed && (payload.new as { id?: string }).id === cid)
+              changed(parsePin(payload.new));
           },
         )
         .subscribe();
