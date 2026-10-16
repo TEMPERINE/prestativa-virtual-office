@@ -29,6 +29,13 @@
       "when": 1792069217901,
       "tag": "0003_office_chat_mvp",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792192337283,
+      "tag": "0004_office_chat_interactions",
+      "breakpoints": true
     }
   ]
 }
