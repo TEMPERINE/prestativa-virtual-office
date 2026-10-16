@@ -6,8 +6,9 @@ export type ChatMessageType = "text" | "sticker";
 type MessageRow = Database["public"]["Tables"]["chat_messages"]["Row"];
 type NewMessageFields = "reply_to_message_id" | "is_forwarded" | "cancelled_at" | "deleted_at";
 // Optional metadata permits the existing MVP while the incremental SQL is staged.
-export type ChatMessage = Omit<MessageRow, NewMessageFields> &
-  Partial<Pick<MessageRow, NewMessageFields>>;
+// body is null for deleted/cancelled messages once the interactions SQL runs.
+export type ChatMessage = Omit<MessageRow, NewMessageFields | "body"> &
+  Partial<Pick<MessageRow, NewMessageFields>> & { body: string | null };
 export type ChatReaction = Database["public"]["Tables"]["chat_message_reactions"]["Row"];
 export type ChatContact = { id: string; name: string; sprite_id: string | null };
 type ChatConversationRow =
