@@ -4,8 +4,11 @@ export const CHAT_PAGE_SIZE = 40;
 export const CHAT_MAX_LENGTH = 4000;
 export type ChatMessageType = "text" | "sticker";
 type MessageRow = Database["public"]["Tables"]["chat_messages"]["Row"];
-// Interaction columns come from staged SQL not yet in generated types; optional keeps the MVP working.
-export type ChatMessage = Omit<MessageRow, "body"> & {
+// Interaction columns stay optional so older payloads and fixtures remain valid.
+export type ChatMessage = Omit<
+  MessageRow,
+  "body" | "reply_to_message_id" | "is_forwarded" | "cancelled_at" | "deleted_at"
+> & {
   body: string | null;
   reply_to_message_id?: string | null;
   is_forwarded?: boolean;
