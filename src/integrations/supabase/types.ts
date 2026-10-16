@@ -46,10 +46,8 @@ export type Database = {
           last_message_seq: number
           participant_a: string
           participant_a_read_seq: number
-          participant_a_delivered_seq: number
           participant_b: string
           participant_b_read_seq: number
-          participant_b_delivered_seq: number
           updated_at: string
           workspace_id: string
         }
@@ -60,10 +58,8 @@ export type Database = {
           last_message_seq?: number
           participant_a: string
           participant_a_read_seq?: number
-          participant_a_delivered_seq?: number
           participant_b: string
           participant_b_read_seq?: number
-          participant_b_delivered_seq?: number
           updated_at?: string
           workspace_id: string
         }
@@ -74,10 +70,8 @@ export type Database = {
           last_message_seq?: number
           participant_a?: string
           participant_a_read_seq?: number
-          participant_a_delivered_seq?: number
           participant_b?: string
           participant_b_read_seq?: number
-          participant_b_delivered_seq?: number
           updated_at?: string
           workspace_id?: string
         }
@@ -93,43 +87,31 @@ export type Database = {
       }
       chat_messages: {
         Row: {
-          body: string | null
+          body: string
           conversation_id: string
           created_at: string
           id: string
           message_type: string
           sender_id: string
           seq: number
-          reply_to_message_id: string | null
-          is_forwarded: boolean
-          cancelled_at: string | null
-          deleted_at: string | null
         }
         Insert: {
-          body: string | null
+          body: string
           conversation_id: string
           created_at?: string
           id: string
           message_type: string
           sender_id: string
           seq: number
-          reply_to_message_id?: string | null
-          is_forwarded?: boolean
-          cancelled_at?: string | null
-          deleted_at?: string | null
         }
         Update: {
-          body?: string | null
+          body?: string
           conversation_id?: string
           created_at?: string
           id?: string
           message_type?: string
           sender_id?: string
           seq?: number
-          reply_to_message_id?: string | null
-          is_forwarded?: boolean
-          cancelled_at?: string | null
-          deleted_at?: string | null
         }
         Relationships: [
           {
@@ -139,15 +121,6 @@ export type Database = {
             referencedRelation: "chat_conversations"
             referencedColumns: ["id"]
           },
-        ]
-      }
-      chat_message_reactions: {
-        Row: { message_id: string; conversation_id: string; user_id: string; emoji: string | null; created_at: string; revision: number }
-        Insert: { message_id: string; conversation_id: string; user_id: string; emoji?: string | null; created_at?: string; revision?: number }
-        Update: { message_id?: string; conversation_id?: string; user_id?: string; emoji?: string | null; created_at?: string; revision?: number }
-        Relationships: [
-          { foreignKeyName: "chat_message_reactions_conversation_id_fkey"; columns: ["conversation_id"]; isOneToOne: false; referencedRelation: "chat_conversations"; referencedColumns: ["id"] },
-          { foreignKeyName: "chat_reaction_message_conversation"; columns: ["message_id", "conversation_id"]; isOneToOne: false; referencedRelation: "chat_messages"; referencedColumns: ["id", "conversation_id"] }
         ]
       }
       custom_props: {
@@ -1154,14 +1127,6 @@ export type Database = {
         Args: { _user_id: string; _workspace_id: string }
         Returns: boolean
       }
-      chat_list_conversations_v2: { Args: { ws: string }; Returns: Json }
-      chat_list_contacts: { Args: { ws: string }; Returns: Json }
-      chat_send_message_v2: { Args: { cid: string; content: string; kind: string; message_id: string; reply_to?: string | null }; Returns: Json }
-      chat_mark_delivered: { Args: { cid: string; through_seq: number }; Returns: undefined }
-      chat_set_reaction: { Args: { cid: string; message_id: string; emoji: string | null }; Returns: Json }
-      chat_delete_message: { Args: { cid: string; message_id: string }; Returns: Json }
-      chat_cancel_message: { Args: { cid: string; message_id: string }; Returns: Json }
-      chat_forward_message: { Args: { cid: string; message_id: string; peer: string; forward_id: string }; Returns: Json }
       chat_can_access_conversation: { Args: { cid: string }; Returns: boolean }
       chat_list_conversations: {
         Args: { ws: string }
@@ -1193,10 +1158,8 @@ export type Database = {
           last_message_seq: number
           participant_a: string
           participant_a_read_seq: number
-          participant_a_delivered_seq: number
           participant_b: string
           participant_b_read_seq: number
-          participant_b_delivered_seq: number
           updated_at: string
           workspace_id: string
         }

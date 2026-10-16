@@ -29,7 +29,7 @@ import { MapSavePoints } from "./MapSavePoints";
 import { defaultBlocked } from "@/lib/default-map-blocked";
 import { appPrompt, appConfirm } from "@/components/ui/app-dialogs";
 
-import { ArrowLeft, Eraser, Square, Download, Trash2, Eye, EyeOff, Undo, Plus, X, Briefcase, Users, MapPin, Hand, Zap, ZapOff, Lock, Map as MapIcon, Boxes, LayoutGrid, Upload, Loader2, Palette, Check } from "lucide-react";
+import { ArrowLeft, Eraser, Square, Download, Trash2, Eye, EyeOff, Undo, Plus, X, Briefcase, Users, MapPin, Hand, Zap, ZapOff, Lock, Map as MapIcon, Boxes, LayoutGrid, Upload, Loader2, Palette, Check, Pencil } from "lucide-react";
 
 type Tool =
   | { kind: "blocked" }
@@ -237,14 +237,14 @@ export function MapEditor() {
       .filter((z) => overrides.zones.includes(z.id as ZoneId))
       .map((z) => ({
         id: z.id,
-        label: z.label,
+        label: overrides.zoneLabels?.[z.id] || z.label,
         color: ZONE_COLORS[z.id] ?? "#888",
         kind: (z.id === "reuniao" || z.id === "feedback" || z.id === "descompressao"
           ? "common"
           : "workspace") as ZoneKind,
       }));
     return [...customZones, ...legacy];
-  }, [customZones, overrides.zones]);
+  }, [customZones, overrides.zones, overrides.zoneLabels]);
 
   const zoneColorOf = useCallback(
     (id: string) => {
@@ -293,6 +293,19 @@ export function MapEditor() {
       const color = palette[existing.length % palette.length];
       const zone: CustomZone = { id, label: label.trim(), color };
       return { ...prev, customZones: [...existing, zone] };
+    });
+    setDirty(true);
+  }, []);
+
+  const renameZone = useCallback(async (id: string, current: string) => {
+    const label = await appPrompt({ title: "Renomear área", defaultValue: current, placeholder: "Nome da área", confirmLabel: "Salvar" });
+    const name = label?.trim();
+    if (!name || name === current) return;
+    setOverrides((prev) => {
+      if ((prev.customZones ?? []).some((c) => c.id === id)) {
+        return { ...prev, customZones: (prev.customZones ?? []).map((c) => (c.id === id ? { ...c, label: name } : c)) };
+      }
+      return { ...prev, zoneLabels: { ...(prev.zoneLabels ?? {}), [id]: name } };
     });
     setDirty(true);
   }, []);
@@ -1007,6 +1020,13 @@ export function MapEditor() {
                           {k === "workspace" ? <Briefcase size={12} /> : <Users size={12} />}
                         </button>
                         <button
+                          onClick={(e) => { e.stopPropagation(); void renameZone(z.id, z.label); }}
+                          title="Renomear área"
+                          className="shrink-0 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        <button
                           onClick={() => removeCustomZone(z.id)}
                           title="Remover zona"
                           className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
@@ -1404,7 +1424,7 @@ export function MapEditor() {
             {/* Spawn point pins */}
             {editorTab === "zones" && Object.entries(spawnPoints).map(([zid, p]) => {
               const color = zoneColorOf(zid);
-              const label = ZONES.find((z) => z.id === zid)?.label
+              const label = overrides.zoneLabels?.[zid] || ZONES.find((z) => z.id === zid)?.label
                 ?? customZones.find((c) => c.id === zid)?.label
                 ?? zid;
               const active = tool.kind === "spawn" && tool.zone === zid;

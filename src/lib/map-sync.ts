@@ -31,6 +31,7 @@ export function isEmptyMapOverrides(o: MapOverrides): boolean {
     !(Array.isArray(o.zones) && o.zones.some((z) => z != null)) &&
     !has(o.customZones) &&
     !has(o.zoneKinds) &&
+    !has(o.zoneLabels) &&
     !has(o.spawnPoints) &&
     !has(o.props) &&
     !o.theme &&

@@ -45,6 +45,8 @@ export type MapOverrides = {
   customZones?: CustomZone[];
   zoneKinds?: Record<string, ZoneKind>;
   spawnPoints?: Record<string, SpawnPoint>;
+  // Nomes personalizados para zonas embutidas (id -> nome).
+  zoneLabels?: Record<string, string>;
   // Elementos visuais sobrepostos ao mapa (mobília, portas etc.)
   props?: PropInstance[];
   // Tema visual do escritório (id em office-themes.ts). Default = "default".
@@ -439,4 +441,10 @@ export function clearSpawnPoint(id: string) {
   const next = { ...o.spawnPoints };
   delete next[id];
   saveOverrides({ ...o, spawnPoints: next });
+}
+
+/** Nome exibido de uma zona embutida, respeitando renomeação no editor. */
+export function zoneLabelOverride(id: string): string | undefined {
+  const v = loadOverrides()?.zoneLabels?.[id];
+  return v && v.trim() ? v : undefined;
 }
