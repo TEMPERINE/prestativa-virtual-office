@@ -2417,13 +2417,13 @@ export function OfficeScene({
       // Ctrl + R — teleport to meeting room
       if (key === "r" && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
         e.preventDefault();
-        teleportToZone("reuniao", "Sala de Reunião");
+        teleportToZone("reuniao");
         return;
       }
       // Ctrl + F — teleport to the decompression room
       if (key === "f" && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
         e.preventDefault();
-        teleportToZone("descompressao", "Área de Descompressão");
+        teleportToZone("descompressao");
         return;
       }
       const emoji = EMOJI_MAP[key];
@@ -2800,7 +2800,7 @@ export function OfficeScene({
       if (z.id === "lobby") continue;
       if (getZoneKind(z.id) !== "workspace") continue;
       const rect = zoneRectFromOverrides(z.id) ?? z.rect;
-      out.push({ id: z.id, label: z.label, rect });
+      out.push({ id: z.id, label: findZoneById(z.id)?.label ?? z.label, rect });
     }
     // Custom zones from the editor — only include those marked as workspace and with painted tiles.
     for (const c of customZonesFromOverrides()) {
