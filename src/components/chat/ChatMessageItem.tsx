@@ -67,7 +67,7 @@ export function ChatMessageItem({
       className={`group flex ${own ? "justify-end" : "justify-start"}`}
     >
       <div
-        className={`relative max-w-[85%] rounded-2xl px-3 py-2 ${reactions.size && !removed ? "mb-3" : ""} ${own ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted text-foreground"}`}
+        className={`relative max-w-[85%] rounded-2xl px-3 py-2 ${reactions.size && !removed ? "mb-4" : ""} ${own ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted text-foreground"}`}
       >
         <MessageActions
           message={message}
@@ -143,7 +143,8 @@ export function ChatMessageItem({
         {!removed && reactions.size > 0 && (
           <div
             aria-label={`Reações da mensagem ${message.seq}`}
-            className={`absolute -bottom-3 flex items-center gap-0.5 rounded-full border bg-background px-1 py-0.5 text-foreground shadow-sm ${own ? "right-2" : "left-2"}`}
+            key={[...reactions].map(([e, d]) => e + d.count).join("|")}
+            className={`chat-reaction-badge absolute -bottom-[18px] z-[1] flex h-[22px] items-center gap-px rounded-full border border-border/60 bg-popover px-1 text-popover-foreground shadow-[0_1px_3px_hsl(0_0%_0%/0.18)] ${own ? "right-2" : "left-2"}`}
           >
             {[...reactions].map(([emoji, data]) => (
               <button
@@ -152,15 +153,23 @@ export function ChatMessageItem({
                 disabled={!state.interactions || state.actionsPending?.includes(message.id)}
                 aria-label={`Reação ${emoji} (${data.count})`}
                 aria-pressed={data.mine}
-                className={`rounded-full px-0.5 text-xs ${data.mine ? "bg-primary/15 ring-1 ring-primary/30" : "hover:bg-muted"}`}
+                className={`flex h-[18px] items-center rounded-full px-px ${data.mine ? "bg-primary/15" : "hover:bg-muted"}`}
                 onClick={() => void store.react(message.id, emoji)}
               >
-                <AppleEmoji emoji={emoji} size={16} />
+                <AppleEmoji emoji={emoji} size={15} />
               </button>
             ))}
-            <span aria-label="Total de reações" className="px-1 text-[10px]">
-              {[...reactions.values()].reduce((total, data) => total + data.count, 0)}
-            </span>
+            {(() => {
+              const total = [...reactions.values()].reduce((sum, data) => sum + data.count, 0);
+              return total > 1 ? (
+                <span
+                  aria-label="Total de reações"
+                  className="pl-0.5 pr-1 text-[11px] font-medium text-muted-foreground"
+                >
+                  {total}
+                </span>
+              ) : null;
+            })()}
           </div>
         )}
       </div>

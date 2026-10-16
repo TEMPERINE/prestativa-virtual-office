@@ -369,7 +369,7 @@ it("opens a compact anchored quick toolbar directly from the bubble and expands 
   const bar = await screen.findByRole("toolbar", { name: "Reações rápidas" });
   expect(within(bar).getAllByRole("button")).toHaveLength(7);
   expect(screen.queryByPlaceholderText("Buscar emoji...")).toBeNull();
-  expect(bar.closest("[data-radix-popper-content-wrapper]")).toBeTruthy();
+  expect(bar.closest("[data-chat-reaction-bar]")).toBeTruthy();
   fireEvent.click(within(bar).getByRole("button", { name: "Mais emojis" }));
   expect(await screen.findByPlaceholderText("Buscar emoji...")).toBeTruthy();
 });

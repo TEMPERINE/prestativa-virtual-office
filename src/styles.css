@@ -294,3 +294,13 @@ body:has([data-office-meetings-panel]) {
     transform: translate(-50%, -50%) translate(0, -6px) scale(0.8);
   }
 }
+
+@keyframes chat-reaction-pop-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+.chat-reaction-pop { animation: chat-reaction-pop-in 140ms ease-out; }
+.chat-reaction-badge { animation: chat-reaction-pop-in 150ms ease-out; transform-origin: center; }
+@media (prefers-reduced-motion: reduce) {
+  .chat-reaction-pop, .chat-reaction-badge { animation: none; }
+}
