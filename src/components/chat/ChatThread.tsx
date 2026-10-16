@@ -10,7 +10,7 @@ import { CHAT_STICKERS, findChatSticker } from "@/lib/chat/stickers";
 
 import { ChatMessageItem, StaticSticker } from "./ChatMessageItem";
 
-const EMOJIS = ["😊", "💖", "👍", "🎉", "☕", "🙏", "😂", "✅", "👋", "🙌", "💡", "🚀"];
+import EmojiPicker, { EmojiStyle, Theme } from "emoji-picker-react";
 export function ChatThread({
   conversation,
   state,
@@ -267,7 +267,8 @@ export function ChatThread({
                   >
                     <StaticSticker id={sticker.id} />
                   </button>
-                ))}
+              ))
+            )}
           </div>
         )}
         <label className="sr-only" htmlFor="office-chat-message">
