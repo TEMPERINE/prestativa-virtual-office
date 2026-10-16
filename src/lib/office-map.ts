@@ -180,7 +180,7 @@ function pointInPolygon(p: Point, poly: Point[]): boolean {
   return inside;
 }
 
-import { isBlockedByOverrides, zoneFromOverrides, hasZoneOverrides, loadOverrides, customZonesFromOverrides } from "./map-overrides";
+import { isBlockedByOverrides, zoneFromOverrides, hasZoneOverrides, loadOverrides, customZonesFromOverrides, zoneLabelOverride } from "./map-overrides";
 
 export function collides(p: Point, radius = 0.014): boolean {
   // Outside the building floor polygon
@@ -223,11 +223,16 @@ function customZoneAsZone(id: string): Zone | null {
   };
 }
 
+function withLabel(z: Zone): Zone {
+  const label = zoneLabelOverride(z.id);
+  return label ? { ...z, label } : z;
+}
+
 // Find a zone by id, including user-defined custom zones from the editor.
 export function findZoneById(id: string | null | undefined): Zone | null {
   if (!id) return null;
   const built = ZONES.find((z) => z.id === id);
-  if (built) return built;
+  if (built) return withLabel(built);
   return customZoneAsZone(id);
 }
 
@@ -242,7 +247,7 @@ export function zoneAtWithOverrides(p: Point): Zone {
     const id = zoneFromOverrides(p);
     if (id) {
       const z = ZONES.find((zz) => zz.id === id);
-      if (z) return z;
+      if (z) return withLabel(z);
       const custom = customZoneAsZone(id);
       if (custom) return custom;
     }
