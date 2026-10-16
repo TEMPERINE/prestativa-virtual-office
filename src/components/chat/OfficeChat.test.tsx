@@ -129,7 +129,12 @@ it("sends text and emojis through the same conversation, then a static sticker",
   const input = await screen.findByRole("textbox", { name: "Mensagem" });
   fireEvent.change(input, { target: { value: "Olá" } });
   fireEvent.click(screen.getByLabelText("Adicionar emoji"));
-  fireEvent.click(screen.getByRole("button", { name: "Emoji 😊" }));
+  const smile = await waitFor(() => {
+    const el = document.querySelector<HTMLElement>('[data-chat-picker] [data-unified="1f60a"]');
+    if (!el) throw new Error("emoji not rendered");
+    return el;
+  });
+  fireEvent.click(smile);
   fireEvent.click(screen.getByRole("button", { name: "Enviar mensagem" }));
   await waitFor(() =>
     expect(s.api.send).toHaveBeenCalledWith("c", "Olá😊", "text", expect.any(String)),
