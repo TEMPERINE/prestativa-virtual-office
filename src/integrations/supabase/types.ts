@@ -50,6 +50,9 @@ export type Database = {
           participant_b: string
           participant_b_delivered_seq: number
           participant_b_read_seq: number
+          pinned_at: string | null
+          pinned_by: string | null
+          pinned_message_id: string | null
           updated_at: string
           workspace_id: string
         }
@@ -64,6 +67,9 @@ export type Database = {
           participant_b: string
           participant_b_delivered_seq?: number
           participant_b_read_seq?: number
+          pinned_at?: string | null
+          pinned_by?: string | null
+          pinned_message_id?: string | null
           updated_at?: string
           workspace_id: string
         }
@@ -78,15 +84,61 @@ export type Database = {
           participant_b?: string
           participant_b_delivered_seq?: number
           participant_b_read_seq?: number
+          pinned_at?: string | null
+          pinned_by?: string | null
+          pinned_message_id?: string | null
           updated_at?: string
           workspace_id?: string
         }
         Relationships: [
           {
+            foreignKeyName: "chat_conversations_pinned_message_id_fkey"
+            columns: ["pinned_message_id"]
+            isOneToOne: false
+            referencedRelation: "chat_messages"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "chat_conversations_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_message_favorites: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          message_id: string
+          user_id: string
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          message_id: string
+          user_id: string
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          message_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_message_favorites_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "chat_conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_message_favorites_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "chat_messages"
             referencedColumns: ["id"]
           },
         ]
@@ -1259,6 +1311,9 @@ export type Database = {
           participant_b: string
           participant_b_delivered_seq: number
           participant_b_read_seq: number
+          pinned_at: string | null
+          pinned_by: string | null
+          pinned_message_id: string | null
           updated_at: string
           workspace_id: string
         }
@@ -1291,6 +1346,11 @@ export type Database = {
         }
         Returns: Json
       }
+      chat_set_favorite: {
+        Args: { cid: string; favorite: boolean; message_id: string }
+        Returns: boolean
+      }
+      chat_set_pin: { Args: { cid: string; message_id: string }; Returns: Json }
       chat_set_reaction: {
         Args: { cid: string; emoji: string; message_id: string }
         Returns: Json
