@@ -3,6 +3,8 @@ import * as Menu from "@radix-ui/react-dropdown-menu";
 import { ChevronDown, Copy, Forward, Info, Pin, Reply, SmilePlus, Star, Trash2, Undo2 } from "lucide-react";
 import { isMessageRemoved } from "@/lib/chat/message-state";
 import { MessageReactionBar } from "./MessageReactionBar";
+import { useThreadExtras } from "./chat-extras";
+import { PinOff, StarOff } from "lucide-react";
 import type { ChatConversation, ChatMessage } from "@/lib/chat/types";
 import type { ChatState, ChatStore } from "@/lib/chat/store";
 import {
@@ -38,6 +40,9 @@ export function MessageActions({
     busy = state.actionsPending?.includes(message.id) ?? false,
     active = menu || !!dialog || reactionOpen;
   const removed = isMessageRemoved(message);
+  const extras = useThreadExtras();
+  const pinned = extras?.pin?.message_id === message.id;
+  const favorite = extras?.favorites.has(message.id) ?? false;
   useEffect(() => {
     if (removed) {
       setReactionOpen(false);
@@ -155,14 +160,30 @@ export function MessageActions({
                   <Forward className={icon} />
                   Encaminhar
                 </Menu.Item>
-                <Menu.Item className={itemClass} disabled title="Em breve">
-                  <Pin className={icon} />
-                  Fixar
-                </Menu.Item>
-                <Menu.Item className={itemClass} disabled title="Em breve">
-                  <Star className={icon} />
-                  Favoritar
-                </Menu.Item>
+                {extras && (
+                  <>
+                    <Menu.Item
+                      className={itemClass}
+                      onSelect={() => {
+                        setReactionOpen(false);
+                        void extras.togglePin(message);
+                      }}
+                    >
+                      {pinned ? <PinOff className={icon} /> : <Pin className={icon} />}
+                      {pinned ? "Desafixar" : "Fixar"}
+                    </Menu.Item>
+                    <Menu.Item
+                      className={itemClass}
+                      onSelect={() => {
+                        setReactionOpen(false);
+                        void extras.toggleFavorite(message);
+                      }}
+                    >
+                      {favorite ? <StarOff className={icon} /> : <Star className={icon} />}
+                      {favorite ? "Remover dos favoritos" : "Favoritar"}
+                    </Menu.Item>
+                  </>
+                )}
               </>
             )}
             {own && state.interactions && !removed && unread && (

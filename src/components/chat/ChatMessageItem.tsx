@@ -1,5 +1,6 @@
 import { AppleEmoji } from "./AppleEmoji";
-import { Check, CheckCheck } from "lucide-react";
+import { Check, CheckCheck, Pin, Star } from "lucide-react";
+import { useThreadExtras } from "./chat-extras";
 import { findChatSticker } from "@/lib/chat/stickers";
 import { messageReceipt, isMessageRemoved } from "@/lib/chat/message-state";
 import type { ChatMessage, ChatConversation } from "@/lib/chat/types";
@@ -60,6 +61,9 @@ export function ChatMessageItem({
       });
     }
   const date = new Date(message.created_at);
+  const extras = useThreadExtras();
+  const favorite = !removed && (extras?.favorites.has(message.id) ?? false);
+  const pinned = !removed && extras?.pin?.message_id === message.id;
   return (
     <li
       id={`chat-message-${message.id}`}
@@ -121,6 +125,10 @@ export function ChatMessageItem({
           </p>
         )}
         <div className="mt-1 flex items-center justify-end gap-1 text-[10px]">
+          {pinned && <Pin aria-label="Mensagem fixada" className="h-3 w-3 opacity-70" />}
+          {favorite && (
+            <Star aria-label="Favoritada por você" className="h-3 w-3 fill-current opacity-70" />
+          )}
           <time className="opacity-75" dateTime={message.created_at}>
             {Number.isNaN(date.getTime())
               ? ""
