@@ -2799,7 +2799,11 @@ export function OfficeScene({
     for (const z of ZONES) {
       if (z.id === "lobby") continue;
       if (getZoneKind(z.id) !== "workspace") continue;
-      const rect = zoneRectFromOverrides(z.id) ?? z.rect;
+      // Com mapa editado, uma área nativa sem nenhuma célula pintada não existe
+      // mais no espaço — não cair no retângulo padrão antigo (área fantasma).
+      const painted = zoneRectFromOverrides(z.id);
+      if (!painted && loadOverrides()) continue;
+      const rect = painted ?? z.rect;
       out.push({ id: z.id, label: findZoneById(z.id)?.label ?? z.label, rect });
     }
     // Custom zones from the editor — only include those marked as workspace and with painted tiles.
