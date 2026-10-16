@@ -1,3 +1,4 @@
+import { AppleEmoji } from "./AppleEmoji";
 import { Check, CheckCheck } from "lucide-react";
 import { findChatSticker } from "@/lib/chat/stickers";
 import { messageReceipt, isMessageRemoved } from "@/lib/chat/message-state";

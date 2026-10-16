@@ -236,25 +236,27 @@ export function ChatThread({
               }
             }}
           >
-            {picker === "emoji"
-              ? EMOJIS.map((emoji) => (
-                  <button
-                    key={emoji}
-                    type="button"
-                    aria-label={`Emoji ${emoji}`}
-                    className="rounded-lg p-2 text-xl hover:bg-accent"
-                    onClick={() => {
-                      setText((value) =>
-                        value.length + emoji.length <= CHAT_MAX_LENGTH ? value + emoji : value,
-                      );
-                      setPicker(null);
-                      input.current?.focus();
-                    }}
-                  >
-                    {emoji}
-                  </button>
-                ))
-              : CHAT_STICKERS.map((sticker) => (
+            {picker === "emoji" ? (
+              <div className="w-full overflow-hidden">
+                <EmojiPicker
+                  emojiStyle={EmojiStyle.APPLE}
+                  theme={Theme.AUTO}
+                  width="100%"
+                  height={340}
+                  previewConfig={{ showPreview: false }}
+                  searchPlaceholder="Buscar emoji..."
+                  onEmojiClick={(value) => {
+                    const emoji = value.emoji;
+                    setText((old) =>
+                      old.length + emoji.length <= CHAT_MAX_LENGTH ? old + emoji : old,
+                    );
+                    setPicker(null);
+                    input.current?.focus();
+                  }}
+                />
+              </div>
+            ) : (
+              CHAT_STICKERS.map((sticker) => (
                   <button
                     key={sticker.id}
                     type="button"
