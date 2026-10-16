@@ -4,15 +4,15 @@ const vp = { width: 1000, height: 800 };
 const size = { width: 300, height: 44 };
 const bubble = { top: 400, bottom: 460, left: 200, right: 500 };
 describe("placeReactionBar", () => {
-  it("received: above the bubble, aligned left, 8px gap", () => {
-    expect(placeReactionBar(bubble, size, vp, false)).toEqual({ top: 348, left: 200, side: "top" });
+  it("received: above the bubble, aligned left, 4px gap", () => {
+    expect(placeReactionBar(bubble, size, vp, false)).toEqual({ top: 352, left: 200, side: "top" });
   });
   it("own: above the bubble, aligned right", () => {
     expect(placeReactionBar(bubble, size, vp, true).left).toBe(200);
     expect(placeReactionBar({ ...bubble, right: 900 }, size, vp, true).left).toBe(600);
   });
   it("near the top: opens below", () => {
-    expect(placeReactionBar({ ...bubble, top: 20, bottom: 80 }, size, vp, false)).toMatchObject({ top: 88, side: "bottom" });
+    expect(placeReactionBar({ ...bubble, top: 20, bottom: 80 }, size, vp, false)).toMatchObject({ top: 84, side: "bottom" });
   });
   it("near side edges: stays fully visible", () => {
     expect(placeReactionBar({ ...bubble, left: -50 }, size, vp, false).left).toBe(8);

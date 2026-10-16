@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { MoreHorizontal } from "lucide-react";
+import { ChevronDown, Copy, Forward, Info, Pin, Reply, SmilePlus, Star, Trash2, Undo2 } from "lucide-react";
 import { isMessageRemoved } from "@/lib/chat/message-state";
 import { MessageReactionBar } from "./MessageReactionBar";
 import type { ChatConversation, ChatMessage } from "@/lib/chat/types";
@@ -58,15 +58,22 @@ export function MessageActions({
   }
   if (removed && !own) return null;
   const itemClass =
-    "cursor-pointer rounded px-3 py-2 text-sm outline-none focus:bg-muted data-[disabled]:opacity-50";
+    "flex h-9 cursor-pointer select-none items-center gap-3 px-4 text-[14px] leading-none outline-none focus:bg-muted data-[highlighted]:bg-muted data-[disabled]:cursor-default data-[disabled]:opacity-45";
+  const icon = "h-[18px] w-[18px] shrink-0 opacity-70";
+  const unread = (conversation.peer_read_seq ?? 0) < message.seq;
   return (
     <>
       <Menu.Root
         modal={false}
         open={menu}
         onOpenChange={(value) => {
-          if (value) onOverlayChange(message.id, true);
+          if (value) {
+            onOverlayChange(message.id, true);
+            store.clearError();
+          }
           setMenu(value);
+          // WhatsApp pattern: quick reactions open glued above the same bubble.
+          if (state.interactions && !removed) setReactionOpen(value);
         }}
       >
         <Menu.Trigger asChild>
@@ -76,7 +83,7 @@ export function MessageActions({
             disabled={busy}
             className="absolute right-1 top-1 rounded bg-background/85 p-0.5 text-foreground opacity-100 shadow-sm transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 data-[state=open]:opacity-100"
           >
-            <MoreHorizontal className="h-4 w-4" />
+            <ChevronDown className="h-4 w-4" />
           </button>
         </Menu.Trigger>
         <Menu.Portal container={host}>
@@ -84,9 +91,10 @@ export function MessageActions({
             onCloseAutoFocus={(event) => {
               if (reactionOpen) event.preventDefault();
             }}
-            sideOffset={4}
-            align="end"
-            className="z-[380] min-w-40 rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
+            sideOffset={2}
+            align={own ? "end" : "start"}
+            collisionPadding={8}
+            className="z-[380] min-w-[188px] overflow-hidden rounded-lg border border-border/50 bg-popover py-1.5 text-popover-foreground shadow-[0_2px_10px_hsl(0_0%_0%/0.18)]"
             onPointerDown={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               e.stopPropagation();
@@ -96,84 +104,85 @@ export function MessageActions({
               }
             }}
           >
-            {!removed && (
+            {!removed && state.interactions && (
+              <Menu.Item
+                className={itemClass}
+                onSelect={() => {
+                  setMenu(false);
+                  setReactionOpen(false);
+                  onReply(message.id);
+                }}
+              >
+                <Reply className={icon} />
+                Responder
+              </Menu.Item>
+            )}
+            {!removed && message.message_type === "text" && (
+              <Menu.Item
+                className={itemClass}
+                onSelect={() => {
+                  setReactionOpen(false);
+                  setCopyError("");
+                  void (async () => {
+                    try {
+                      if (!navigator.clipboard?.writeText) throw new Error();
+                      await navigator.clipboard.writeText(message.body ?? "");
+                    } catch {
+                      setCopyError("Não foi possível copiar. Selecione o texto e tente novamente.");
+                    }
+                  })();
+                }}
+              >
+                <Copy className={icon} />
+                Copiar
+              </Menu.Item>
+            )}
+            {!removed && state.interactions && (
               <>
-                {state.interactions && (
-                  <>
-                    <Menu.Item
-                      className={itemClass}
-                      onSelect={() => {
-                        store.clearError();
-                        onOverlayChange(message.id, true);
-                        setMenu(false);
-                        setReactionOpen(true);
-                      }}
-                    >
-                      Reagir
-                    </Menu.Item>
-                    <Menu.Item
-                      className={itemClass}
-                      onSelect={() => {
-                        setMenu(false);
-                        onReply(message.id);
-                      }}
-                    >
-                      Responder
-                    </Menu.Item>
-                    <Menu.Item className={itemClass} onSelect={() => open("forward")}>
-                      Encaminhar
-                    </Menu.Item>
-                  </>
-                )}
-                {message.message_type === "text" && (
-                  <Menu.Item
-                    className={itemClass}
-                    onSelect={() => {
-                      setCopyError("");
-                      void (async () => {
-                        try {
-                          if (!navigator.clipboard?.writeText) throw new Error();
-                          await navigator.clipboard.writeText(message.body ?? "");
-                        } catch {
-                          setCopyError(
-                            "Não foi possível copiar. Selecione o texto e tente novamente.",
-                          );
-                        }
-                      })();
-                    }}
-                  >
-                    Copiar
-                  </Menu.Item>
-                )}
+                <Menu.Item
+                  className={itemClass}
+                  onSelect={() => {
+                    store.clearError();
+                    onOverlayChange(message.id, true);
+                    setMenu(false);
+                    setReactionOpen(true);
+                  }}
+                >
+                  <SmilePlus className={icon} />
+                  Reagir
+                </Menu.Item>
+                <Menu.Item className={itemClass} onSelect={() => open("forward")}>
+                  <Forward className={icon} />
+                  Encaminhar
+                </Menu.Item>
+                <Menu.Item className={itemClass} disabled title="Em breve">
+                  <Pin className={icon} />
+                  Fixar
+                </Menu.Item>
+                <Menu.Item className={itemClass} disabled title="Em breve">
+                  <Star className={icon} />
+                  Favoritar
+                </Menu.Item>
               </>
+            )}
+            {own && state.interactions && !removed && unread && (
+              <Menu.Item className={itemClass} onSelect={() => open("cancel")}>
+                <Undo2 className={icon} />
+                Cancelar envio
+              </Menu.Item>
+            )}
+            {own && state.interactions && !removed && !unread && (
+              <Menu.Item className={itemClass} onSelect={() => open("delete")}>
+                <Trash2 className={icon} />
+                Apagar mensagem
+              </Menu.Item>
             )}
             {own && (
               <Menu.Item className={itemClass} onSelect={() => open("info")}>
+                <Info className={icon} />
                 Informações
               </Menu.Item>
             )}
-            {own &&
-              state.interactions &&
-              !removed &&
-              (conversation.peer_read_seq ?? 0) < message.seq && (
-                <Menu.Item
-                  className={`${itemClass} text-destructive`}
-                  onSelect={() => open("cancel")}
-                >
-                  Cancelar envio
-                </Menu.Item>
-              )}
-            {own &&
-              state.interactions &&
-              !removed &&
-              (conversation.peer_read_seq ?? 0) >= message.seq && (
-                <Menu.Item
-                  className={`${itemClass} text-destructive`}
-                  onSelect={() => open("delete")}
-                >
-                  Apagar mensagem
-                </Menu.Item>
-              )}
           </Menu.Content>
         </Menu.Portal>
       </Menu.Root>
@@ -191,6 +200,7 @@ export function MessageActions({
               onOverlayChange(message.id, true);
             }
             setReactionOpen(value);
+            if (!value) setMenu(false);
           }}
           seq={message.seq}
           own={own}
