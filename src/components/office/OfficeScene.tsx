@@ -9,12 +9,15 @@ import {
   ZONES,
   SPAWN,
   collides,
+  canMoveOnMap,
   zoneAtWithOverrides as zoneAt,
   findZoneById,
   type Point,
   type ZoneId,
 } from "@/lib/office-map";
-import { loadOverrides, zoneRectFromOverrides, getZoneKind, customZonesFromOverrides, pullOverridesFromCloud, subscribeOverridesFromCloud, spawnPointForZone } from "@/lib/map-overrides";
+import { loadOverrides, zoneRectFromOverrides, getZoneKind, getMapSync, pullOverridesFromCloud, subscribeOverridesFromCloud } from "@/lib/map-overrides";
+import { workspaceZonesForMap, pointInMapZone } from "@/lib/workspace-zones";
+import { positionRecoveryDecision, walkablePointInZone, nearestWalkablePoint } from "@/lib/map-navigation";
 import { legacyCallZoneAt } from "@/lib/legacy-call-zone";
 import { zoneIdAtPoint } from "@/lib/rtc/canonical-zones";
 import { useOfficeTheme } from "@/hooks/useOfficeTheme";
@@ -266,21 +269,6 @@ function zonesShareMeetingArea(a: string, b: string): boolean {
   return overlapX / Math.max(minW, 0.001) > 0.35 || overlapY / Math.max(minH, 0.001) > 0.35;
 }
 
-// "Seat" point of a zone rect — bottom-center, in front of the desk.
-// If that point collides with furniture, walk it upward until it's walkable.
-function seatPointForRect(rect: { x1: number; y1: number; x2: number; y2: number }): Point {
-  const x = (rect.x1 + rect.x2) / 2;
-  const bottomMargin = 0.012;
-  let y = rect.y2 - bottomMargin;
-  for (let i = 0; i < 20; i++) {
-    if (!collides({ x, y })) return { x, y };
-    y -= 0.012;
-    if (y <= rect.y1) break;
-  }
-  // Fallback: rect center.
-  return { x, y: (rect.y1 + rect.y2) / 2 };
-}
-
 // Pick a random walkable spot in the corridor/lobby (no claimed zone).
 // Used when the user has no workstation assigned so they don't all stack on SPAWN.
 function randomCorridorPoint(): Point {
@@ -303,23 +291,23 @@ function randomPointInRect(
   rect: { x1: number; y1: number; x2: number; y2: number },
   avoid: Point[] = [],
   minDist = 0.04,
-): Point {
+  zoneId?: string,
+): Point | null {
   const pad = 0.008;
   for (let i = 0; i < 120; i++) {
     const x = rect.x1 + pad + Math.random() * Math.max(0, rect.x2 - rect.x1 - pad * 2);
     const y = rect.y1 + pad + Math.random() * Math.max(0, rect.y2 - rect.y1 - pad * 2);
     const p = { x, y };
-    if (collides(p)) continue;
+    if (collides(p) || (zoneId && !pointInMapZone(loadOverrides(), zoneId, p))) continue;
     if (avoid.some((a) => Math.hypot(a.x - x, a.y - y) < minDist)) continue;
     return p;
   }
-  // Fallback to seat point.
-  return seatPointForRect(rect);
+  return zoneId ? walkablePointInZone(loadOverrides(), zoneId) : nearestWalkablePoint(loadOverrides(), { x: (rect.x1 + rect.x2) / 2, y: (rect.y1 + rect.y2) / 2 });
 }
 
 // Find a walkable point next to `anchor` (used by "Junte-se a mim" teleport
 // so the called user lands beside the caller, not on top of them).
-function nearbyWalkablePoint(anchor: Point, avoid: Point[] = [], preferredZoneId?: ZoneId): Point {
+function nearbyWalkablePoint(anchor: Point, avoid: Point[] = [], preferredZoneId?: ZoneId): Point | null {
   const rings = [0.035, 0.05, 0.07, 0.09, 0.12, 0.16];
   for (const r of rings) {
     for (let i = 0; i < 16; i++) {
@@ -335,9 +323,9 @@ function nearbyWalkablePoint(anchor: Point, avoid: Point[] = [], preferredZoneId
   if (preferredZoneId && preferredZoneId !== "lobby") {
     const z = findZoneById(preferredZoneId);
     const rect = zoneRectFromOverrides(preferredZoneId) ?? z?.rect;
-    if (rect) return randomPointInRect(rect, avoid, 0.04);
+    if (rect) return randomPointInRect(rect, avoid, 0.04, preferredZoneId);
   }
-  return anchor;
+  return nearestWalkablePoint(loadOverrides(), anchor);
 }
 
 export function OfficeScene({
@@ -406,6 +394,8 @@ export function OfficeScene({
   const positionHydratedRef = useRef(false);
   const [pos, setPos] = useState<Point>(SPAWN);
   const [mapVersion, setMapVersion] = useState(0);
+  const [positionLoaded, setPositionLoaded] = useState(false);
+  const [canonicalMapReady, setCanonicalMapReady] = useState(false);
   const [zone, setZone] = useState<ZoneId>("lobby");
   const [showTeam, setShowTeam] = useState(true);
   const [isMasterAdmin, setIsMasterAdmin] = useState(false);
@@ -863,11 +853,18 @@ export function OfficeScene({
   // every user on every device. Subscribe to realtime updates and force a
   // re-render when overrides change.
   useEffect(() => {
-    const bump = () => setMapVersion((v) => v + 1);
-    void pullOverridesFromCloud().then(bump);
+    let mounted = true;
+    let fetched = false;
+    const bump = () => {
+      if (!mounted) return;
+      setCanonicalMapReady(fetched && getMapSync().snapshot().state === "READY");
+      setMapVersion((v) => v + 1);
+    };
+    void pullOverridesFromCloud().then(() => { fetched = true; bump(); });
     const off = subscribeOverridesFromCloud(() => bump());
     window.addEventListener("map-overrides-changed", bump);
     return () => {
+      mounted = false;
       off();
       window.removeEventListener("map-overrides-changed", bump);
     };
@@ -971,8 +968,9 @@ export function OfficeScene({
     const dy = dir === "up" ? -step : dir === "down" ? step : 0;
     let nx = cur.x + dx;
     let ny = cur.y + dy;
-    if (collides({ x: nx, y: cur.y })) nx = cur.x;
-    if (collides({ x: nx, y: ny })) ny = cur.y;
+    const map = loadOverrides();
+    if (!canMoveOnMap(map, cur, { x: nx, y: cur.y })) nx = cur.x;
+    if (!canMoveOnMap(map, { x: nx, y: cur.y }, { x: nx, y: ny })) ny = cur.y;
     if (nx === cur.x && ny === cur.y) {
       // Bloqueado por parede: para imediatamente para os remotos.
       if (IS_RTC_V2) rtcV2Ref.current?.reportMotion(cur.x, cur.y, 0, 0);
@@ -1119,16 +1117,13 @@ export function OfficeScene({
         startPoint = { x: existing.x, y: existing.y };
       } else if (myClaimZone) {
         // First entry with a claim → spawn at the workstation seat.
-        const z = findZoneById(myClaimZone);
-        const sp = spawnPointForZone(myClaimZone);
-        const rect = zoneRectFromOverrides(myClaimZone as ZoneId) ?? z?.rect ?? null;
-        startPoint = sp ?? (rect ? seatPointForRect(rect) : SPAWN);
+        startPoint = walkablePointInZone(loadOverrides(), myClaimZone) ?? SPAWN;
       } else {
         // First time in: drop somewhere random in the corridors so people
         // don't all pile on top of each other at the default spawn.
         startPoint = randomCorridorPoint();
       }
-      const safeStart = hasSavedPos ? startPoint : (collides(startPoint) ? SPAWN : startPoint);
+      const safeStart = hasSavedPos || localWins ? startPoint : (collides(startPoint) ? SPAWN : startPoint);
       posRef.current = safeStart;
       setPos(safeStart);
       const startZone = callZoneAt(safeStart);
@@ -1137,6 +1132,7 @@ export function OfficeScene({
       facingRef.current = startFacing;
       setFacing(startFacing);
       positionHydratedRef.current = true;
+      setPositionLoaded(true);
       writeLocalSavedPosition(userData.user.id, safeStart, startZone, startFacing);
       // Sinaliza pro preloader que a posição real já foi resolvida — só
       // depois disso o office aparece (sem flash de snap pro spawn).
@@ -1539,13 +1535,7 @@ export function OfficeScene({
       const myClaimZone = Object.entries(claimsRef.current).find(([, u]) => u === uid)?.[0];
       let spawn: Point = SPAWN;
       if (myClaimZone) {
-        const sp = spawnPointForZone(myClaimZone);
-        if (sp) spawn = { x: sp.x, y: sp.y };
-        else {
-          const z = findZoneById(myClaimZone);
-          const rect = zoneRectFromOverrides(myClaimZone as ZoneId) ?? z?.rect ?? null;
-          if (rect) spawn = seatPointForRect(rect);
-        }
+        spawn = walkablePointInZone(loadOverrides(), myClaimZone) ?? nearestWalkablePoint(loadOverrides(), SPAWN) ?? SPAWN;
       }
       const spawnZone = callZoneAt(spawn);
       try { window.localStorage.removeItem(`${LAST_POSITION_KEY_PREFIX}${uid}`); } catch { /* noop */ }
@@ -1925,6 +1915,7 @@ export function OfficeScene({
   const claimZone = useCallback(async (zoneId: string) => {
     const uid = meIdRef.current;
     if (!uid) return;
+    if (!workspaceZonesForMap(loadOverrides()).some((zone) => zone.id === zoneId)) return;
     const _wsClaim = getCurrentWorkspaceId();
     if (!_wsClaim) { toast.error("Workspace inválido."); return; }
     // Libera só a mesa anterior deste espaço (uma mesa por espaço).
@@ -1979,6 +1970,21 @@ export function OfficeScene({
   >(null);
   const teleportTimers = useRef<number[]>([]);
 
+  useEffect(() => {
+    const decision = positionRecoveryDecision(getMapSync().snapshot(), posRef.current, positionLoaded, canonicalMapReady);
+    if (decision.kind !== "recovered") return;
+    autoWalkRef.current = null;
+    teleportTimers.current.forEach((timer) => window.clearTimeout(timer));
+    teleportTimers.current = [];
+    setTeleport(null);
+    const point = decision.point;
+    posRef.current = point;
+    setPos(point);
+    setZone(callZoneAt(point));
+    lastMotionAtRef.current = 0;
+    sendPos(point.x, point.y, callZoneAt(point), facingRef.current, true);
+  }, [mapVersion, canonicalMapReady, positionLoaded, sendPos]);
+
   const teleportToZone = useCallback((zoneId: ZoneId, label?: string, useSpawnPoint = false) => {
     if (!tierCapsRef.current.canTeleport) {
       toast.info("Teleporte está disponível a partir do Nível 2.");
@@ -1993,18 +1999,18 @@ export function OfficeScene({
       return;
     }
     const rect = zoneRectFromOverrides(zoneId) ?? z.rect;
-    let target: Point;
+    let target: Point | null;
     if (useSpawnPoint) {
       // Own workspace: land at the determined spawn point (or fixed seat).
-      const spawn = spawnPointForZone(zoneId);
-      target = spawn ?? seatPointForRect(rect);
+      target = walkablePointInZone(loadOverrides(), zoneId);
     } else {
       // Shared rooms: random walkable point so people don't stack.
       const occupied: Point[] = Object.entries(positionsRef.current)
         .filter(([uid, p]) => uid !== meIdRef.current && p && p.zone === zoneId)
         .map(([, p]) => ({ x: p.x, y: p.y }));
-      target = randomPointInRect(rect, occupied, 0.05);
+      target = randomPointInRect(rect, occupied, 0.05, zoneId);
     }
+    if (!target) { toast.error("Não há ponto caminhável nesta área."); return; }
     const from = { ...posRef.current };
 
 
@@ -2032,7 +2038,8 @@ export function OfficeScene({
     // Phase 1: fade out + sparkle at origin
     teleportTimers.current.push(
       window.setTimeout(() => {
-        // Snap to destination
+        // Revalidate against a map that may have changed during the animation.
+        if (collides(target) || !pointInMapZone(loadOverrides(), zoneId, target)) { setTeleport(null); toast.error("O destino deixou de pertencer a uma área caminhável."); return; }
         posRef.current = target;
         setPos(target);
         const z2 = callZoneAt(target);
@@ -2154,6 +2161,7 @@ export function OfficeScene({
     }
     teleportTimers.current.push(
       window.setTimeout(() => {
+        if (collides(target)) { setTeleport(null); toast.error("O destino deixou de ser caminhável."); return; }
         posRef.current = target;
         setPos(target);
         const z2 = callZoneAt(target);
@@ -2195,7 +2203,8 @@ export function OfficeScene({
       .map(([, p]) => ({ x: p.x, y: p.y }));
     const target = nearbyWalkablePoint(fromPos, occupied, callZoneAt(fromPos));
     const name = profilesRef.current[fromUid]?.display_name ?? "quem chamou";
-    teleportToPoint(target, name);
+    if (target) teleportToPoint(target, name);
+    else toast.error("Não há ponto caminhável próximo ao chamado.");
   }, [teleportToPoint]);
 
   const declineJoin = useCallback((fromUid: string) => {
@@ -2775,10 +2784,12 @@ export function OfficeScene({
       let spawn: Point = SPAWN;
       const myClaim = uid ? Object.entries(claimsRef.current).find(([, u]) => u === uid)?.[0] : undefined;
       if (myClaim) {
-        const sp = spawnPointForZone(myClaim);
-        if (sp) spawn = { x: sp.x, y: sp.y };
+        spawn = walkablePointInZone(loadOverrides(), myClaim) ?? SPAWN;
       }
-      const { point, fallback } = returnPosRef.current.resolve(spawn);
+      const { point: capturedPoint, fallback } = returnPosRef.current.resolve(spawn);
+      // A previous safe point can become a wall after an online map edit.
+      const point = nearestWalkablePoint(loadOverrides(), capturedPoint);
+      if (!point) { toast.error("Não há ponto seguro no mapa para retornar."); return; }
       if (fallback) emitTelemetry(tel, "MEETING_IDLE_RETURN_POSITION_FALLBACK", { zoneId });
       // Caminho existente: setPos → efeito RTC (announceJump) + sendPos persiste.
       lastMotionAtRef.current = 0;
@@ -2793,33 +2804,8 @@ export function OfficeScene({
 
 
 
-  // All workspace zones (built-in + custom) with their effective rect for hover overlays.
-  const workspaceZones = useMemo(() => {
-    const out: { id: string; label: string; rect: { x1: number; y1: number; x2: number; y2: number } }[] = [];
-    for (const z of ZONES) {
-      if (z.id === "lobby") continue;
-      if (getZoneKind(z.id) !== "workspace") continue;
-      // Com mapa editado, uma área nativa sem nenhuma célula pintada não existe
-      // mais no espaço — não cair no retângulo padrão antigo (área fantasma).
-      const painted = zoneRectFromOverrides(z.id);
-      if (!painted && loadOverrides()) continue;
-      const rect = painted ?? z.rect;
-      out.push({ id: z.id, label: findZoneById(z.id)?.label ?? z.label, rect });
-    }
-    // Custom zones from the editor — only include those marked as workspace and with painted tiles.
-    for (const c of customZonesFromOverrides()) {
-      if (getZoneKind(c.id) !== "workspace") continue;
-      const rect = zoneRectFromOverrides(c.id as ZoneId);
-      if (!rect) continue;
-      // An edited built-in zone can also appear among custom zones. Keep one
-      // hit area per ID so overlapping cards cannot retain independent hover.
-      const existing = out.findIndex((zone) => zone.id === c.id);
-      if (existing >= 0) out[existing] = { id: c.id, label: c.label, rect };
-      else out.push({ id: c.id, label: c.label, rect });
-    }
-    return out;
-  }, [claims]);
-
+  // Bounds place the card; only painted cells form the interactive hit area.
+  const workspaceZones = useMemo(() => workspaceZonesForMap(loadOverrides()), [mapVersion]);
 
 
 
@@ -3103,6 +3089,8 @@ export function OfficeScene({
             <WorkspaceZoneHover
               key={`ws-${wz.id}`}
               rect={wz.rect}
+              zoneId={wz.id}
+              path={wz.path}
               isHovered={isHovered}
               onEnter={() => setHoveredZone(wz.id)}
               onLeave={() => setHoveredZone((cur) => (cur === wz.id ? null : cur))}
@@ -4246,12 +4234,16 @@ export function OfficeScene({
  */
 function WorkspaceZoneHover({
   rect,
+  zoneId,
+  path,
   isHovered,
   onEnter,
   onLeave,
   children,
 }: {
   rect: { x1: number; y1: number; x2: number; y2: number };
+  zoneId: string;
+  path: string;
   isHovered: boolean;
   onEnter: () => void;
   onLeave: () => void;
@@ -4268,7 +4260,14 @@ function WorkspaceZoneHover({
     const onMove = (event: PointerEvent) => {
       const anchor = anchorRef.current;
       const popup = popupRef.current;
-      if (anchor && inside(anchor.getBoundingClientRect(), event.clientX, event.clientY)) return;
+      if (anchor) {
+        const bounds = anchor.getBoundingClientRect();
+        if (bounds.width && bounds.height && inside(bounds, event.clientX, event.clientY) &&
+          pointInMapZone(loadOverrides(), zoneId, {
+            x: rect.x1 + (event.clientX - bounds.left) / bounds.width * (rect.x2 - rect.x1),
+            y: rect.y1 + (event.clientY - bounds.top) / bounds.height * (rect.y2 - rect.y1),
+          })) return;
+      }
       if (popup && inside(popup.getBoundingClientRect(), event.clientX, event.clientY)) return;
       onLeave();
     };
@@ -4281,7 +4280,7 @@ function WorkspaceZoneHover({
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerout", onOut);
     };
-  }, [isHovered, onLeave]);
+  }, [isHovered, onLeave, zoneId, rect]);
 
   useEffect(() => {
     if (!isHovered) {
@@ -4315,9 +4314,12 @@ function WorkspaceZoneHover({
         width: `${(rect.x2 - rect.x1) * 100}%`,
         height: `${(rect.y2 - rect.y1) * 100}%`,
         zIndex: isHovered ? 55 : 15,
+        pointerEvents: "none",
       }}
-      onMouseEnter={onEnter}
     >
+      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
+        <path data-workspace-hit={zoneId} d={path} fill="transparent" pointerEvents="all" onPointerEnter={onEnter} />
+      </svg>
       <div
         className="absolute inset-0 rounded-md transition-all duration-150 pointer-events-none"
         style={{
@@ -5046,7 +5048,7 @@ function PlacementLayer({
           const x = (e.clientX - rect.left) / rect.width;
           const y = (e.clientY - rect.top) / rect.height;
           if (!targetRect) return;
-          if (x < targetRect.x1 || x > targetRect.x2 || y < targetRect.y1 || y > targetRect.y2) {
+          if (!pointInMapZone(loadOverrides(), placing.zoneId, { x, y })) {
             toast.error("Clique sobre a mesa do destinatário.");
             return;
           }

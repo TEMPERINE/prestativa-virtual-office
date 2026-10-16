@@ -68,33 +68,11 @@ function emptyOverrides(): MapOverrides {
   };
 }
 
-// Defaults for built-in zones — workstations are claimable, social rooms are common.
-export const DEFAULT_ZONE_KINDS: Record<string, ZoneKind> = {
-  "atendente-1": "workspace",
-  "atendente-2": "workspace",
-  "atendente-3": "workspace",
-  "atendente-4": "workspace",
-  "atendente-5": "workspace",
-  "atendente-6": "workspace",
-  "atendente-7": "workspace",
-  "atendente-8": "workspace",
-  "atendente-9": "workspace",
-  "atendente-10": "workspace",
-  supervisao: "workspace",
-  diretoria: "workspace",
-  reuniao: "common",
-  feedback: "common",
-  descompressao: "common",
-  lobby: "common",
-};
-
+export { DEFAULT_ZONE_KINDS } from "./map-zone-kind";
+import { resolveZoneKind } from "./map-zone-kind";
+import { isGridWalkable } from "./map-walkability";
 export function getZoneKind(id: string): ZoneKind {
-  const o = loadOverrides();
-  const override = o?.zoneKinds?.[id];
-  if (override) return override;
-  const custom = o?.customZones?.find((c) => c.id === id);
-  if (custom?.kind) return custom.kind;
-  return DEFAULT_ZONE_KINDS[id] ?? "common";
+  return resolveZoneKind(loadOverrides(), id);
 }
 
 export function setZoneKind(id: string, kind: ZoneKind) {
@@ -228,6 +206,8 @@ export async function pushOverridesToCloud(
     if (!isMapOverridesShape(o)) return { ok: false, error: "Mapa inválido." };
     // Mapa vazio persiste o documento vazio canônico (mesma linha, trigger incrementa version).
     const normalized = normalizeMapOverrides(o) ?? emptyOverrides();
+    const validation = (await import("./map-validation")).validateMap(normalized);
+    if (!validation.valid) return { ok: false, error: validation.issues.filter((i) => i.severity === "error").map((i) => i.message).join("\n") };
     const { supabase } = await import("@/integrations/supabase/client");
     const { data: userData } = await supabase.auth.getUser();
     const privileged = await usesSuperadminTransport();
@@ -353,21 +333,7 @@ export function pointToCell(p: { x: number; y: number }, cols = GRID_COLS, rows 
 export function isBlockedByOverrides(p: { x: number; y: number }, radius = 0): boolean {
   const o = loadOverrides();
   if (!o) return false;
-  // Sample center + 4 shoulders so the avatar's body can't clip into tiles.
-  const samples = radius
-    ? [
-        p,
-        { x: p.x - radius, y: p.y },
-        { x: p.x + radius, y: p.y },
-        { x: p.x, y: p.y - radius },
-        { x: p.x, y: p.y + radius },
-      ]
-    : [p];
-  for (const s of samples) {
-    const { col, row } = pointToCell(s, o.cols, o.rows);
-    if (o.blocked[cellIndex(col, row, o.cols)] === 1) return true;
-  }
-  return false;
+  return !isGridWalkable(o, p, radius);
 }
 
 export function zoneFromOverrides(p: { x: number; y: number }): ZoneId | null {

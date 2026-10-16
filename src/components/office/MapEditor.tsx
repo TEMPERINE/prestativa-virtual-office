@@ -17,7 +17,9 @@ import {
   type PropInstance,
   type PropAction,
 } from "@/lib/map-overrides";
-import { ZONES, COLLIDERS, FLOOR_POLY, type ZoneId } from "@/lib/office-map";
+import { resolveZoneKind, createCustomZone } from "@/lib/map-zone-kind";
+import { validateMap, type MapValidation } from "@/lib/map-validation";
+import { ZONES, isMapWalkable, type ZoneId } from "@/lib/office-map";
 import { PROP_CATALOG, getPropDef, subscribePropCatalog } from "@/lib/prop-catalog";
 import { loadCustomPropsFromCloud, deleteCustomProp, uploadCustomProp } from "@/lib/custom-props";
 import { OFFICE_THEMES, getCurrentThemeId, setCurrentThemeId } from "@/lib/office-themes";
@@ -40,8 +42,7 @@ type Tool =
   | { kind: "place-prop"; defId: string }
   | { kind: "select" };
 
-// Seed overrides from the hardcoded COLLIDERS + ZONES so the user starts
-// with the current layout already painted and can tweak from there.
+// Seed only the original blocked tiles; zones are painted explicitly.
 function seedFromDefaults(): MapOverrides {
   // Padrão = paredes e móveis bloqueados do layout original (sem zonas).
   const o = newOverrides();
@@ -121,6 +122,18 @@ export function MapEditor() {
   const [showImage, setShowImage] = useState(true);
   const [showEffective, setShowEffective] = useState(false);
   const [dirty, setDirty] = useState(!loadOverrides());
+  const [validation, setValidation] = useState<MapValidation>({ valid: true, issues: [] });
+  const [validatedMap, setValidatedMap] = useState<MapOverrides | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [highlightedIssue, setHighlightedIssue] = useState<string | null>(null);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setValidation(validateMap(overrides));
+      setValidatedMap(overrides);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [overrides]);
+  const validationPending = validatedMap !== overrides;
   const painting = useRef(false);
   const [altDown, setAltDown] = useState(false);
   const historyRef = useRef<MapOverrides[]>([]);
@@ -239,12 +252,10 @@ export function MapEditor() {
         id: z.id,
         label: overrides.zoneLabels?.[z.id] || z.label,
         color: ZONE_COLORS[z.id] ?? "#888",
-        kind: (z.id === "reuniao" || z.id === "feedback" || z.id === "descompressao"
-          ? "common"
-          : "workspace") as ZoneKind,
+        kind: resolveZoneKind(overrides, z.id),
       }));
     return [...customZones, ...legacy];
-  }, [customZones, overrides.zones, overrides.zoneLabels]);
+  }, [customZones, overrides]);
 
   const zoneColorOf = useCallback(
     (id: string) => {
@@ -255,33 +266,18 @@ export function MapEditor() {
     [customZones]
   );
 
-  // Default zone kinds shown in the editor (mirror map-overrides defaults).
-  const defaultKindOf = useCallback((id: string): ZoneKind => {
-    if (id === "lobby" || id === "reuniao" || id === "feedback" || id === "descompressao") return "common";
-    return "workspace";
-  }, []);
-
-  const kindOf = useCallback(
-    (id: string): ZoneKind => {
-      const ov = overrides.zoneKinds?.[id];
-      if (ov) return ov;
-      const custom = customZones.find((c) => c.id === id);
-      if (custom?.kind) return custom.kind;
-      return defaultKindOf(id);
-    },
-    [overrides.zoneKinds, customZones, defaultKindOf]
-  );
-
+  const kindOf = useCallback((id: string) => resolveZoneKind(overrides, id), [overrides]);
   const toggleKind = useCallback((id: string) => {
     setOverrides((prev) => {
-      const cur = prev.zoneKinds?.[id]
-        ?? prev.customZones?.find((c) => c.id === id)?.kind
-        ?? defaultKindOf(id);
-      const next: ZoneKind = cur === "workspace" ? "common" : "workspace";
-      return { ...prev, zoneKinds: { ...(prev.zoneKinds ?? {}), [id]: next } };
+      const next: ZoneKind = resolveZoneKind(prev, id) === "workspace" ? "common" : "workspace";
+      return {
+        ...prev,
+        zoneKinds: { ...(prev.zoneKinds ?? {}), [id]: next },
+        customZones: (prev.customZones ?? []).map((zone) => zone.id === id ? { ...zone, kind: next } : zone),
+      };
     });
     setDirty(true);
-  }, [defaultKindOf]);
+  }, []);
 
   const addCustomZone = useCallback(async () => {
     const label = await appPrompt({ title: "Nova zona", placeholder: "Nome da zona", confirmLabel: "Criar" });
@@ -291,7 +287,7 @@ export function MapEditor() {
       const existing = prev.customZones ?? [];
       const id = `custom-${Date.now().toString(36)}`;
       const color = palette[existing.length % palette.length];
-      const zone: CustomZone = { id, label: label.trim(), color };
+      const zone = createCustomZone(id, label.trim(), color);
       return { ...prev, customZones: [...existing, zone] };
     });
     setDirty(true);
@@ -527,16 +523,21 @@ export function MapEditor() {
   }, []);
 
   const save = useCallback(async () => {
-    saveOverrides(overrides);
-    setDirty(false);
-    const res = await pushOverridesToCloud(overrides);
-    if (res.ok) {
-      toast.success("Mapa salvo na nuvem. Visível para todos os usuários.");
-    } else {
-      toast.error(
-        `Salvo localmente, mas falhou ao enviar pra nuvem: ${res.error ?? "erro desconhecido"}`
-      );
-    }
+    const result = validateMap(overrides);
+    setValidation(result);
+    setValidatedMap(overrides);
+    if (!result.valid) { toast.error("Corrija os erros do mapa antes de salvar."); return; }
+    setSaving(true);
+    try {
+      saveOverrides(overrides);
+      const res = await pushOverridesToCloud(overrides);
+      if (res.ok) {
+        setDirty(false);
+        toast.success("Mapa salvo na nuvem. Visível para todos os usuários.");
+      } else {
+        toast.error(`Salvo localmente, mas falhou ao enviar pra nuvem: ${res.error ?? "erro desconhecido"}`);
+      }
+    } finally { setSaving(false); }
   }, [overrides]);
 
   const reset = useCallback(async () => {
@@ -629,7 +630,7 @@ export function MapEditor() {
 
 
   const exportJson = useCallback(() => {
-    const blob = new Blob([JSON.stringify(overrides)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ ...overrides, customZones: (overrides.customZones ?? []).map((zone) => ({ ...zone, kind: resolveZoneKind(overrides, zone.id) })) })], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -700,8 +701,8 @@ export function MapEditor() {
     canvas.height = rows;
     const ctx = canvas.getContext("2d")!;
     ctx.clearRect(0, 0, cols, rows);
-    const showZones = editorTab === "zones";
-    const showBlocked = editorTab === "map";
+    const showZones = editorTab === "zones" || editorTab === "map";
+    const showBlocked = showZones;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const i = cellIndex(c, r, cols);
@@ -716,10 +717,18 @@ export function MapEditor() {
         }
       }
     }
-  }, [overrides, zoneColorOf, editorTab]);
+    if (showZones && !validationPending) {
+      ctx.lineWidth = 0.15;
+      for (const issue of validation.issues) {
+        if (issue.severity !== "error" && highlightedIssue !== issue.code + ":" + issue.zoneId) continue;
+        ctx.strokeStyle = issue.severity === "error" ? "#ff1744" : "#facc15";
+        for (const i of issue.cells) ctx.strokeRect(i % cols + 0.05, Math.floor(i / cols) + 0.05, 0.9, 0.9);
+      }
+    }
+  }, [overrides, zoneColorOf, editorTab, validation, validationPending, highlightedIssue]);
 
   // Effective-collision overlay: shows EXACTLY what the game blocks for
-  // the avatar (FLOOR_POLY + painted blocked OR default COLLIDERS).
+  // the avatar (full footprint against the floor and the edited blocked grid).
   // This is the source of truth for calibration so painted area === in-game blocked area.
   useEffect(() => {
     const canvas = effectiveCanvasRef.current;
@@ -732,36 +741,11 @@ export function MapEditor() {
     ctx.clearRect(0, 0, cols, rows);
     if (!showEffective) return;
 
-    const hasPainted = overrides.blocked.some((b) => b === 1);
-
-    const pointInPoly = (px: number, py: number) => {
-      let inside = false;
-      for (let i = 0, j = FLOOR_POLY.length - 1; i < FLOOR_POLY.length; j = i++) {
-        const xi = FLOOR_POLY[i].x, yi = FLOOR_POLY[i].y;
-        const xj = FLOOR_POLY[j].x, yj = FLOOR_POLY[j].y;
-        const intersect = yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi;
-        if (intersect) inside = !inside;
-      }
-      return inside;
-    };
-
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const px = (c + 0.5) / cols;
         const py = (r + 0.5) / rows;
-        let blocked = !pointInPoly(px, py);
-        if (!blocked) {
-          if (hasPainted) {
-            blocked = overrides.blocked[cellIndex(c, r, cols)] === 1;
-          } else {
-            for (const co of COLLIDERS) {
-              if (px > co.x1 && px < co.x2 && py > co.y1 && py < co.y2) {
-                blocked = true;
-                break;
-              }
-            }
-          }
-        }
+        const blocked = !isMapWalkable(overrides, { x: px, y: py });
         if (blocked) {
           // Yellow outline-style — distinct from the red paint layer.
           ctx.fillStyle = "rgba(250, 204, 21, 0.55)";
@@ -819,7 +803,7 @@ export function MapEditor() {
           >
             {showEffective ? <Eye size={12} /> : <EyeOff size={12} />} Bloqueio do jogo
           </button>
-          <MapSavePoints overrides={overrides} onLoad={(o) => setOverrides(o)} />
+          <MapSavePoints overrides={overrides} onLoad={(o) => { setOverrides(o); setDirty(true); }} />
           <button onClick={exportJson} className="text-xs px-2 py-1 rounded bg-muted inline-flex items-center gap-1">
             <Download size={12} /> Export
           </button>
@@ -841,6 +825,8 @@ export function MapEditor() {
           </button>
           <button
             onClick={save}
+            disabled={saving || validationPending || !validation.valid}
+            title={validationPending ? "Validando mapa…" : !validation.valid ? "Corrija os erros do mapa antes de salvar" : undefined}
             className={`text-sm px-3 py-1.5 rounded font-semibold ${
               dirty ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
             }`}
@@ -850,6 +836,15 @@ export function MapEditor() {
         </div>
       </header>
 
+      <section aria-label="Diagnóstico do mapa" className="border-b border-border px-4 py-2 text-xs max-h-36 overflow-y-auto">
+        <div>Áreas: cor da zona · Paredes: vermelho · Spawn: pino · Erros: contorno vermelho · Caminhabilidade: footprint completo do avatar</div>
+        {validationPending ? <p role="status">Validando mapa…</p> : validation.issues.length === 0 ? <p>Mapa sem erros estruturais.</p> :
+          validation.issues.map((issue, index) => <button key={`${issue.code}:${issue.zoneId}:${index}`} type="button"
+            className={`block text-left ${issue.severity === "error" ? "text-destructive" : "text-amber-600"}`}
+            onClick={() => { setHighlightedIssue(issue.code + ":" + issue.zoneId); setEditorTab("zones"); if (issue.zoneId) setTool({ kind: "zone", zone: issue.zoneId as ZoneId }); }}>
+            {issue.severity === "error" ? "Erro" : "Aviso"}: {issue.message}
+          </button>)}
+      </section>
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar com abas */}
         <aside className="w-72 border-r border-border bg-card overflow-y-auto flex flex-col">
@@ -1018,6 +1013,7 @@ export function MapEditor() {
                           className={`shrink-0 p-1 rounded ${k === "workspace" ? "text-primary" : "text-muted-foreground"} hover:bg-muted`}
                         >
                           {k === "workspace" ? <Briefcase size={12} /> : <Users size={12} />}
+                          <span className="text-[9px]">{k === "workspace" ? "Trabalho" : "Comum"}</span>
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); void renameZone(z.id, z.label); }}
@@ -1422,7 +1418,7 @@ export function MapEditor() {
               />
             )}
             {/* Spawn point pins */}
-            {editorTab === "zones" && Object.entries(spawnPoints).map(([zid, p]) => {
+            {(editorTab === "zones" || editorTab === "map") && Object.entries(spawnPoints).map(([zid, p]) => {
               const color = zoneColorOf(zid);
               const label = customZones.find((c) => c.id === zid)?.label
                 || overrides.zoneLabels?.[zid]

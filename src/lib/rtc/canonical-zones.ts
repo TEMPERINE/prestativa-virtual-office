@@ -1,14 +1,14 @@
+import { resolveZoneKind } from "@/lib/map-zone-kind";
+import { mapZoneId } from "@/lib/workspace-zones";
 // Resolução PURA de zona a partir do mapa canônico (map_overrides normalizado):
 //   - com overrides: a zona só existe se estiver pintada no grid;
 //   - sem overrides (sem linha / reset): zonas embutidas (ZONES, exceto lobby);
 //   - toda zona existente (common OU workspace) → rtcMode ZONE_ROOM;
 //     só circulação (sem zona) → PROXIMITY_LOBBY.
-// Kind (domínio): zoneKinds > customZone.kind > DEFAULT_ZONE_KINDS > "common".
-import { ZONES, zoneAt as builtinZoneAt, type Point } from "@/lib/office-map";
+// Kind de domínio usa a resolução compartilhada com editor e mapa.
+import { ZONES, type Point } from "@/lib/office-map";
 import {
-  DEFAULT_ZONE_KINDS,
   cellIndex,
-  pointToCell,
   type MapOverrides,
   type ZoneKind,
 } from "@/lib/map-overrides";
@@ -17,13 +17,6 @@ export type ZoneResolution =
   | { ok: true; zoneId: string }
   | { ok: false; reason: "ZONE_NOT_FOUND" | "ZONE_NOT_PRIVATE" };
 
-function kindOf(map: MapOverrides | null, id: string): ZoneKind {
-  const o = map?.zoneKinds?.[id];
-  if (o) return o;
-  const custom = map?.customZones?.find((c) => c.id === id);
-  if (custom?.kind) return custom.kind;
-  return DEFAULT_ZONE_KINDS[id] ?? "common";
-}
 
 /**
  * Modo RTC derivado do domínio:
@@ -66,7 +59,7 @@ export function classifyZone(map: MapOverrides | null, zoneId: string): ZoneClas
   } else {
     exists = !!builtin;
   }
-  const kind = kindOf(map, zoneId);
+  const kind = resolveZoneKind(map, zoneId);
   const supportsVideo = builtin?.supportsVideo ?? false;
   const rtcMode: RtcMode = exists ? "ZONE_ROOM" : "PROXIMITY_LOBBY";
   return {
@@ -90,16 +83,9 @@ export function resolveMeetingZone(map: MapOverrides | null, zoneId: string): Zo
 // Espelha callZoneAt do cliente legado, mas recebendo o mapa canônico
 // explicitamente (sem localStorage/estado global):
 //   1) com mapa: célula pintada → zona (se for embutida ou custom conhecida);
-//      senão, envelope (bounding box das células pintadas) de uma zona conhecida;
+//      buracos/corredores não pintados continuam lobby;
 //   2) sem mapa: retângulos das zonas embutidas.
 // Retorna "lobby" quando nenhuma zona se aplica.
-
-function knownZone(map: MapOverrides, id: string): boolean {
-  return (
-    ZONES.some((z) => z.id === id && z.id !== "lobby") ||
-    !!map.customZones?.some((c) => c.id === id)
-  );
-}
 
 export function paintedRect(
   map: MapOverrides,
@@ -129,19 +115,7 @@ export function paintedRect(
 }
 
 export function zoneIdAtPoint(map: MapOverrides | null, p: Point): string {
-  if (!map) return builtinZoneAt(p).id;
-  const { col, row } = pointToCell(p, map.cols, map.rows);
-  const direct = map.zones[cellIndex(col, row, map.cols)];
-  if (direct && direct !== "lobby" && knownZone(map, direct)) return direct;
-  const ids = [
-    ...ZONES.filter((z) => z.id !== "lobby").map((z) => z.id as string),
-    ...(map.customZones ?? []).map((c) => c.id),
-  ];
-  for (const id of ids) {
-    const rect = paintedRect(map, id);
-    if (rect && p.x >= rect.x1 && p.x <= rect.x2 && p.y >= rect.y1 && p.y <= rect.y2) return id;
-  }
-  return "lobby";
+  return mapZoneId(map, p);
 }
 
 /**

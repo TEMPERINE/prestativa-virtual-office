@@ -6,6 +6,7 @@
 // `version` (map_overrides.version, incrementada no banco) é a autoridade:
 // nunca diminui e respostas atrasadas de versões antigas são descartadas.
 
+import { resolveZoneKind } from "./map-zone-kind";
 import type { ZoneId } from "./office-map";
 import type { MapOverrides } from "./map-overrides";
 
@@ -16,7 +17,13 @@ export const MAP_GRID_ROWS = 80;
 export function isMapOverridesShape(raw: unknown): raw is MapOverrides {
   if (!raw || typeof raw !== "object") return false;
   const o = raw as MapOverrides;
-  return !!o.cols && !!o.rows && Array.isArray(o.blocked);
+  if (o.customZones != null && (
+    !Array.isArray(o.customZones) || !o.customZones.every((zone) =>
+      zone !== null && typeof zone === "object" && typeof zone.id === "string" && zone.id.length > 0 &&
+      typeof zone.label === "string" && typeof zone.color === "string")
+  )) return false;
+  return Number.isSafeInteger(o.cols) && o.cols > 0 &&
+    Number.isSafeInteger(o.rows) && o.rows > 0 && Array.isArray(o.blocked);
 }
 
 /**
@@ -67,7 +74,7 @@ export function normalizeMapOverrides(raw: unknown): MapOverrides | null {
     rows: MAP_GRID_ROWS,
     blocked,
     zones,
-    customZones: o.customZones ?? [],
+    customZones: (o.customZones ?? []).map((zone) => ({ ...zone, kind: resolveZoneKind(o, zone.id) })),
     zoneKinds: o.zoneKinds ?? {},
     spawnPoints: o.spawnPoints ?? {},
   };
@@ -177,18 +184,34 @@ export class MapSyncController {
     do {
       this.rerun = false;
       let row: CanonicalMapRow;
+      let normalized: MapOverrides | null;
       try {
         row = await this.deps.fetchCanonical();
+        if (row && (!isMapOverridesShape(row.data) || !Number.isFinite(row.version) || row.version < 0)) {
+          throw new Error("map_document_invalid: mapa canônico inválido");
+        }
+        normalized = row ? normalizeMapOverrides(row.data) : null;
       } catch (e) {
         this.error = e instanceof Error ? e.message : String(e);
         this.setState("ERROR");
         return;
       }
+      // Cache restored on this page has not yet been confirmed. A stale/missing
+      // response cannot authorize recovery against it; retry within the same bound.
+      if ((row?.version ?? 0) < this.version && this.state !== "READY") {
+        if (++staleTries > maxStale) {
+          this.error = `map_version_stale: carregado ${row?.version ?? 0}, esperado ${this.version}`;
+          this.setState("ERROR");
+          return;
+        }
+        this.rerun = true;
+        continue;
+      }
       if (row) {
         // Nunca diminuir: resposta de versão antiga é descartada.
         // Documento vazio (reset) é aceito e normaliza para null (mapa base).
-        if (row.version > this.version && isMapOverridesShape(row.data)) {
-          this.map = normalizeMapOverrides(row.data);
+        if (row.version >= this.version && isMapOverridesShape(row.data)) {
+          this.map = normalized;
           this.version = row.version;
         }
       } else if (this.version === 0) {

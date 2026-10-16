@@ -212,3 +212,30 @@ describe("integração map-overrides", () => {
     expect(mo.zoneFromOverrides({ x: 0, y: 0 })).toBe("edit");
   });
 });
+
+it("canonical fetch replaces an unconfirmed same-version cache before READY",async()=>{
+ const c=new MapSyncController({fetchCanonical:async()=>({data:small("confirmed"),version:5})});
+ c.restoreCache(small("local-draft"),5);await c.load();
+ expect(c.snapshot().state).toBe("READY");expect(c.snapshot().map?.zones[0]).toBe("confirmed");
+});
+it("an invalid canonical document cannot mark an unconfirmed cache READY",async()=>{
+ const c=new MapSyncController({fetchCanonical:async()=>({data:{bad:true},version:5})});
+ c.restoreCache(small("cache"),5);await c.load();expect(c.snapshot().state).toBe("ERROR");
+});
+it("a canonical read older than restored cache must retry, never authorize recovery",async()=>{
+ const fetch=vi.fn(async()=>({data:small("old"),version:4}));
+ const c=new MapSyncController({fetchCanonical:fetch,maxStaleRefetch:1});c.restoreCache(small("cache"),5);
+ await c.load();expect(c.snapshot().state).toBe("ERROR");expect(c.snapshot().version).toBe(5);expect(fetch.mock.calls.length).toBeGreaterThan(1);
+});
+
+it.each([{}, [null], [{kind:"workspace"}]])("malformed custom metadata fails closed without throwing or replacing the last map: %j", async (customZones) => {
+ const fetch = vi.fn<() => Promise<CanonicalMapRow>>()
+   .mockResolvedValueOnce({data:small("known"),version:1})
+   .mockResolvedValueOnce({data:{...small("broken"),customZones},version:2});
+ const c = new MapSyncController({fetchCanonical:fetch}); await c.load(); const previous=c.snapshot().map;
+ await expect(c.notify(2)).resolves.toBeUndefined();
+ expect(c.snapshot()).toMatchObject({state:"ERROR",version:1}); expect(c.snapshot().map).toBe(previous);
+ expect(normalizeMapOverrides({...small("bad-cache"),customZones})).toBeNull();
+ expect(()=>c.restoreCache({...small("bad-cache"),customZones},3)).not.toThrow();
+ expect(c.snapshot().map).toBe(previous);
+});

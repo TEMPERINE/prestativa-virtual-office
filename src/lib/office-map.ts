@@ -167,45 +167,20 @@ export const FLOOR_POLY: Point[] = [
   { x: 0.115, y: 0.925 }, // bottom-left
 ];
 
-function pointInPolygon(p: Point, poly: Point[]): boolean {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const xi = poly[i].x, yi = poly[i].y;
-    const xj = poly[j].x, yj = poly[j].y;
-    const intersect =
-      yi > p.y !== yj > p.y &&
-      p.x < ((xj - xi) * (p.y - yi)) / (yj - yi) + xi;
-    if (intersect) inside = !inside;
-  }
-  return inside;
+import type { MapOverrides } from "./map-overrides";
+import { AVATAR_RADIUS, footprintClear, footprintInPolygon, isGridPathWalkable } from "./map-walkability";
+import { zoneFromOverrides, loadOverrides, customZonesFromOverrides, zoneLabelOverride } from "./map-overrides";
+
+/** Fixed floor is convex, so a swept circle stays inside when both endpoints do. */
+export function canMoveOnMap(map: MapOverrides | null, from: Point, to: Point, radius = AVATAR_RADIUS): boolean {
+  if (!footprintInPolygon(from, radius, FLOOR_POLY) || !footprintInPolygon(to, radius, FLOOR_POLY)) return false;
+  return map ? isGridPathWalkable(map, from, to, radius) : COLLIDERS.every((rect) => footprintClear(from, to, radius, rect));
 }
-
-import { isBlockedByOverrides, zoneFromOverrides, hasZoneOverrides, loadOverrides, customZonesFromOverrides, zoneLabelOverride } from "./map-overrides";
-
-export function collides(p: Point, radius = 0.014): boolean {
-  // Outside the building floor polygon
-  if (!pointInPolygon(p, FLOOR_POLY)) return true;
-  // Check the four "shoulders" of the body around the point so the avatar
-  // doesn't clip into the iso edges.
-  if (
-    !pointInPolygon({ x: p.x - radius, y: p.y }, FLOOR_POLY) ||
-    !pointInPolygon({ x: p.x + radius, y: p.y }, FLOOR_POLY) ||
-    !pointInPolygon({ x: p.x, y: p.y - radius }, FLOOR_POLY) ||
-    !pointInPolygon({ x: p.x, y: p.y + radius }, FLOOR_POLY)
-  ) {
-    return true;
-  }
-  // Map editor overrides take precedence over the default colliders.
-  if (loadOverrides()) {
-    return isBlockedByOverrides(p, radius);
-  }
-  // Hit any default furniture / wall
-  for (const c of COLLIDERS) {
-    if (p.x + radius > c.x1 && p.x - radius < c.x2 && p.y + radius > c.y1 && p.y - radius < c.y2) {
-      return true;
-    }
-  }
-  return false;
+export function isMapWalkable(map: MapOverrides | null, p: Point, radius = AVATAR_RADIUS): boolean {
+  return canMoveOnMap(map, p, p, radius);
+}
+export function collides(p: Point, radius = AVATAR_RADIUS): boolean {
+  return !isMapWalkable(loadOverrides(), p, radius);
 }
 
 // Build a synthetic Zone object for a user-defined custom zone id.

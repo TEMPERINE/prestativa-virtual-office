@@ -37,8 +37,9 @@ vi.mock("@/integrations/supabase/client", () => {
 const small = (z: string) => ({
   cols: 2,
   rows: 2,
-  blocked: [1, 0, 0, 0],
+  blocked: [0, 0, 0, 0],
   zones: [z, null, null, null],
+  customZones: [{id:z,label:"Fixture",color:"#fff",kind:"common"}],
 });
 const fetchRow = async () => (db.row ? { data: db.row.data, version: db.row.version } : null);
 
@@ -135,4 +136,11 @@ describe("Etapa 4B — reset sem DELETE", () => {
     expect(src).not.toMatch(/\.delete\(/);
     expect(editor).not.toMatch(/from\("map_overrides"\)[\s\S]{0,40}\.delete\(/);
   });
+});
+
+it("structurally invalid maps cannot be published through the shared cloud-save path",async()=>{
+ const {mo}=await freshModule();const raw=mo.newOverrides();raw.customZones=[{id:"custom-bad",label:"Área sem pintura",color:"#fff",kind:"workspace"}];
+ const previous=db.row!.version;
+ const result=await mo.pushOverridesToCloud(raw);
+ expect(result.ok).toBe(false);expect(result.error).toContain("nenhuma célula");expect(db.row!.version).toBe(previous);
 });
