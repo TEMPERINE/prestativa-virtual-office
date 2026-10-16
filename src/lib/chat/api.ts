@@ -163,7 +163,10 @@ function one(value: unknown): ChatMessage {
   if (!parsed) throw new Error("Não foi possível confirmar o envio. Tente novamente.");
   return parsed;
 }
-export function createChatApi(client: SupabaseClient<Database>): ChatApi {
+// Interaction RPCs are staged ahead of generated types; keep this client untyped.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createChatApi(typedClient: SupabaseClient<Database>): ChatApi {
+  const client = typedClient as unknown as SupabaseClient<any>;
   let interactions: boolean | null = null;
   return {
     supportsInteractions: () => interactions === true,
