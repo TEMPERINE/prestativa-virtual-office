@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import EmojiPicker, { EmojiStyle, Theme } from "emoji-picker-react";
 import { SmilePlus } from "lucide-react";
+import { AppleEmoji } from "./AppleEmoji";
 
 const QUICK = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
@@ -73,7 +74,7 @@ export function MessageReactionBar({
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xl hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
                 onClick={() => choose(emoji)}
               >
-                {emoji}
+                <AppleEmoji emoji={emoji} size={22} />
               </button>
             ))}
             <button
@@ -90,7 +91,7 @@ export function MessageReactionBar({
           {expanded && (
             <div className="mt-2 w-[320px] max-w-[calc(100vw-40px)] overflow-hidden">
               <EmojiPicker
-                emojiStyle={EmojiStyle.NATIVE}
+                emojiStyle={EmojiStyle.APPLE}
                 theme={Theme.AUTO}
                 width="100%"
                 height={340}
