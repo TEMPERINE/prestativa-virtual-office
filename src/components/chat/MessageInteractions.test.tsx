@@ -452,3 +452,49 @@ it("received deletion redacts both its bubble and existing reply preview", async
   expect(screen.queryByText("Texto da colega")).toBeNull();
   expect(screen.queryByLabelText("Opções da mensagem 2")).toBeNull();
 });
+
+it.each(["outside", "Escape"])("closes the entire message action group on %s without closing Chat", async (kind) => {
+  await open();
+  const actions = await menu(1);
+  await screen.findByRole("dialog", { name: "Reagir à mensagem" });
+  if (kind === "outside") fireEvent.pointerDown(document.body, { button: 0 });
+  else fireEvent.keyDown(actions, { key: "Escape" });
+  await waitFor(() => {
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Reagir à mensagem" })).toBeNull();
+  });
+  expect(screen.getByRole("dialog", { name: "Mensagens privadas" })).toBeTruthy();
+});
+
+it("keeps the reaction portal alive through pointerdown while the menu is also open", async () => {
+  const s = await open();
+  await menu(1);
+  const picker = await screen.findByRole("dialog", { name: "Reagir à mensagem" });
+  const plus = within(picker).getByRole("button", { name: "Mais emojis" });
+  pointerClick(plus);
+  expect(await within(picker).findByPlaceholderText("Buscar emoji...")).toBeTruthy();
+  expect(screen.getByRole("menu")).toBeTruthy();
+  const emoji = within(picker).getByRole("button", { name: "Reagir com ❤️" });
+  // Exercise a nested target too, as a real click can land on the emoji image.
+  pointerClick(emoji.querySelector("img") ?? emoji);
+  await waitFor(() => expect(s.api.react).toHaveBeenCalledWith("c", "m1", "❤️"));
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "Reagir à mensagem" })).toBeNull();
+});
+
+it("executes a menu action after dragging the real Chat header", async () => {
+  await open();
+  const panel = screen.getByRole("dialog", { name: "Mensagens privadas" });
+  const header = screen.getByText("Mensagens").closest("header");
+  if (!header) throw new Error("Missing drag header");
+  Object.defineProperty(header, "setPointerCapture", { configurable: true, value: vi.fn() });
+  Object.defineProperty(header, "releasePointerCapture", { configurable: true, value: vi.fn() });
+  const before = panel.style.top;
+  fireEvent.pointerDown(header, { button: 0, clientX: 800, clientY: 80 });
+  fireEvent.pointerMove(header, { clientX: 700, clientY: 180 });
+  fireEvent.pointerUp(header, { clientX: 700, clientY: 180 });
+  expect(panel.style.top).not.toBe(before);
+  pointerClick(within(await menu(1)).getByRole("menuitem", { name: "Copiar" }));
+  await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Olá original"));
+  expect(screen.queryByRole("menu")).toBeNull();
+});
