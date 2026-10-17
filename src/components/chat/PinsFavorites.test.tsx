@@ -170,6 +170,13 @@ async function menu(seq: number) {
   });
   return await screen.findByRole("menu");
 }
+// Model the browser sequence: document capture runs before Radix onSelect.
+function pointerClick(target: HTMLElement) {
+  fireEvent.pointerDown(target, { button: 0, ctrlKey: false });
+  expect(target.isConnected).toBe(true);
+  fireEvent.pointerUp(target, { button: 0, ctrlKey: false });
+  fireEvent.click(target, { button: 0, ctrlKey: false });
+}
 beforeEach(() => {
   vi.spyOn(document, "hasFocus").mockReturnValue(true);
   vi.stubGlobal(
@@ -237,10 +244,10 @@ function fakeExtras() {
 it("favorites and unfavorites a message only for the current user", async () => {
   const x = fakeExtras();
   await open(undefined, x.api);
-  fireEvent.click(within(await menu(2)).getByRole("menuitem", { name: "Favoritar" }));
+  pointerClick(within(await menu(2)).getByRole("menuitem", { name: "Favoritar" }));
   await screen.findByLabelText("Favoritada por você");
   expect(x.api.setFavorite).toHaveBeenLastCalledWith("c", "m2", true);
-  fireEvent.click(within(await menu(2)).getByRole("menuitem", { name: "Remover dos favoritos" }));
+  pointerClick(within(await menu(2)).getByRole("menuitem", { name: "Remover dos favoritos" }));
   await waitFor(() => expect(screen.queryByLabelText("Favoritada por você")).toBeNull());
   expect(x.api.setFavorite).toHaveBeenLastCalledWith("c", "m2", false);
 });
@@ -249,10 +256,10 @@ it("pins, replaces and unpins; pin bar locates the original message", async () =
   const scrolled = vi.fn();
   Element.prototype.scrollIntoView = scrolled;
   await open(undefined, x.api);
-  fireEvent.click(within(await menu(2)).getByRole("menuitem", { name: "Fixar" }));
+  pointerClick(within(await menu(2)).getByRole("menuitem", { name: "Fixar" }));
   const bar = await screen.findByLabelText("Ir para a mensagem fixada");
   expect(bar.textContent).toContain("Texto da colega");
-  fireEvent.click(within(await menu(1)).getByRole("menuitem", { name: "Fixar" }));
+  pointerClick(within(await menu(1)).getByRole("menuitem", { name: "Fixar" }));
   await waitFor(() =>
     expect(screen.getByLabelText("Ir para a mensagem fixada").textContent).toContain(
       "Olá original",
@@ -261,7 +268,7 @@ it("pins, replaces and unpins; pin bar locates the original message", async () =
   expect(screen.getAllByLabelText("Mensagem fixada")).toHaveLength(1);
   fireEvent.click(screen.getByLabelText("Ir para a mensagem fixada"));
   await waitFor(() => expect(scrolled).toHaveBeenCalled());
-  fireEvent.click(within(await menu(1)).getByRole("menuitem", { name: "Desafixar" }));
+  pointerClick(within(await menu(1)).getByRole("menuitem", { name: "Desafixar" }));
   await waitFor(() => expect(screen.queryByLabelText("Ir para a mensagem fixada")).toBeNull());
   expect(x.api.setPin).toHaveBeenLastCalledWith("c", null);
 });

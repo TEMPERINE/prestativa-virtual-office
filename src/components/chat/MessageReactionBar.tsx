@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import EmojiPicker, { EmojiStyle, Theme } from "emoji-picker-react";
 import { SmilePlus } from "lucide-react";
@@ -36,6 +36,9 @@ export function MessageReactionBar({
   host,
   busy,
   onReact,
+  menuContentRef,
+  menuTriggerRef,
+  sharedContentRef,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -44,11 +47,15 @@ export function MessageReactionBar({
   host: Element;
   busy: boolean;
   onReact: (emoji: string) => void;
+  menuContentRef?: RefObject<HTMLDivElement | null>;
+  menuTriggerRef?: RefObject<HTMLButtonElement | null>;
+  sharedContentRef?: RefObject<HTMLDivElement | null>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const anchorRef = useRef<HTMLSpanElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
+  const localContentRef = useRef<HTMLDivElement>(null);
+  const contentRef = sharedContentRef ?? localContentRef;
   const probeRef = useRef<HTMLSpanElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number; side: "top" | "bottom" } | null>(
     null,
@@ -80,7 +87,7 @@ export function MessageReactionBar({
         ? old
         : next,
     );
-  }, [own]);
+  }, [own, contentRef]);
 
   // Follow the bubble: list scroll, chat drag, resize, fullscreen, content growth.
   useLayoutEffect(() => {
@@ -105,8 +112,10 @@ export function MessageReactionBar({
   useEffect(() => {
     if (!open) return;
     const down = (event: PointerEvent) => {
-      const t = event.target as Node;
-      if (contentRef.current?.contains(t) || triggerRef.current?.contains(t)) return;
+      const path = event.composedPath();
+      const areas = [contentRef.current, triggerRef.current, menuContentRef?.current, menuTriggerRef?.current];
+      if (areas.some((area) => area && (path.includes(area) ||
+        (event.target instanceof Node && area.contains(event.target))))) return;
       onOpenChange(false);
     };
     const key = (event: KeyboardEvent) => {
@@ -122,7 +131,7 @@ export function MessageReactionBar({
       document.removeEventListener("pointerdown", down, true);
       document.removeEventListener("keydown", key, true);
     };
-  }, [open, onOpenChange]);
+  }, [open, onOpenChange, contentRef, menuContentRef, menuTriggerRef]);
 
   const choose = (emoji: string) => {
     onOpenChange(false);

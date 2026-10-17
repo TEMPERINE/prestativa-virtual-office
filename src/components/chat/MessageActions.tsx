@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import {
   ChevronDown,
@@ -47,6 +47,9 @@ export function MessageActions({
     [dialog, setDialog] = useState<DialogName>(null),
     [reactionOpen, setReactionOpen] = useState(false),
     [copyError, setCopyError] = useState("");
+  const menuContentRef = useRef<HTMLDivElement>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  const reactionContentRef = useRef<HTMLDivElement>(null);
   const own = message.sender_id === userId,
     busy = state.actionsPending?.includes(message.id) ?? false,
     active = menu || !!dialog || reactionOpen;
@@ -94,6 +97,7 @@ export function MessageActions({
       >
         <Menu.Trigger asChild>
           <button
+            ref={menuTriggerRef}
             type="button"
             aria-label={`Opções da mensagem ${message.seq}`}
             disabled={busy}
@@ -104,6 +108,16 @@ export function MessageActions({
         </Menu.Trigger>
         <Menu.Portal container={host}>
           <Menu.Content
+            ref={menuContentRef}
+            onInteractOutside={(event) => {
+              // The reaction portal belongs to this menu's interactive group.
+              const original = event.detail.originalEvent;
+              const content = reactionContentRef.current;
+              if (content && (original.composedPath().includes(content) ||
+                (original.target instanceof Node && content.contains(original.target)))) {
+                event.preventDefault();
+              }
+            }}
             onCloseAutoFocus={(event) => {
               if (reactionOpen) event.preventDefault();
             }}
@@ -157,7 +171,9 @@ export function MessageActions({
               <>
                 <Menu.Item
                   className={itemClass}
-                  onSelect={() => {
+                  onSelect={(event) => {
+                    // Close the menu ourselves without Radix closing the retained bar.
+                    event.preventDefault();
                     store.clearError();
                     onOverlayChange(message.id, true);
                     setMenu(false);
@@ -225,6 +241,9 @@ export function MessageActions({
       )}
       {state.interactions && !removed && (
         <MessageReactionBar
+          menuContentRef={menuContentRef}
+          menuTriggerRef={menuTriggerRef}
+          sharedContentRef={reactionContentRef}
           open={reactionOpen}
           onOpenChange={(value) => {
             if (value) {

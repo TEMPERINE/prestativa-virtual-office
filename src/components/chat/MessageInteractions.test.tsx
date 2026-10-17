@@ -168,6 +168,13 @@ async function menu(seq: number) {
   });
   return await screen.findByRole("menu");
 }
+// Model the browser sequence: document capture runs before Radix onSelect.
+function pointerClick(target: HTMLElement) {
+  fireEvent.pointerDown(target, { button: 0, ctrlKey: false });
+  expect(target.isConnected).toBe(true);
+  fireEvent.pointerUp(target, { button: 0, ctrlKey: false });
+  fireEvent.click(target, { button: 0, ctrlKey: false });
+}
 beforeEach(() => {
   vi.spyOn(document, "hasFocus").mockReturnValue(true);
   vi.stubGlobal(
@@ -213,7 +220,7 @@ it("offers received/own actions correctly and copies text through Clipboard only
   let actions = await menu(2);
   expect(within(actions).getByRole("menuitem", { name: "Responder" })).toBeTruthy();
   expect(within(actions).queryByRole("menuitem", { name: "Cancelar envio" })).toBeNull();
-  fireEvent.click(within(actions).getByRole("menuitem", { name: "Copiar" }));
+  pointerClick(within(actions).getByRole("menuitem", { name: "Copiar" }));
   await waitFor(() =>
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Texto da colega"),
   );
@@ -224,21 +231,21 @@ it("offers received/own actions correctly and copies text through Clipboard only
 it("quick reaction adds then clicking its badge removes the same reaction", async () => {
   const s = await open();
   const actions = await menu(1);
-  fireEvent.click(within(actions).getByRole("menuitem", { name: "Reagir" }));
+  pointerClick(within(actions).getByRole("menuitem", { name: "Reagir" }));
   const picker = await screen.findByRole("dialog", { name: "Reagir à mensagem" });
-  fireEvent.click(within(picker).getByRole("button", { name: "Reagir com ❤️" }));
+  pointerClick(within(picker).getByRole("button", { name: "Reagir com ❤️" }));
   const badge = await screen.findByRole("button", { name: "Reação ❤️ (1)" });
   fireEvent.click(badge);
   await waitFor(() => expect(s.api.react).toHaveBeenLastCalledWith("c", "m1", null));
 });
 it("reply composer is cancellable and sends the reference without copying private metadata", async () => {
   const s = await open();
-  fireEvent.click(within(await menu(2)).getByRole("menuitem", { name: "Responder" }));
+  pointerClick(within(await menu(2)).getByRole("menuitem", { name: "Responder" }));
   const preview = await screen.findByLabelText("Respondendo à mensagem");
   expect(preview.textContent).toContain("Colega");
   fireEvent.click(screen.getByLabelText("Cancelar resposta"));
   expect(screen.queryByLabelText("Respondendo à mensagem")).toBeNull();
-  fireEvent.click(within(await menu(2)).getByRole("menuitem", { name: "Responder" }));
+  pointerClick(within(await menu(2)).getByRole("menuitem", { name: "Responder" }));
   fireEvent.change(screen.getByLabelText("Mensagem"), { target: { value: "Minha resposta" } });
   fireEvent.click(screen.getByRole("button", { name: "Enviar mensagem" }));
   await waitFor(() =>
@@ -254,11 +261,11 @@ it("reply composer is cancellable and sends the reference without copying privat
 });
 it("forward dialog selects multiple workspace contacts and sends independent copies", async () => {
   const s = await open();
-  fireEvent.click(within(await menu(2)).getByRole("menuitem", { name: "Encaminhar" }));
+  pointerClick(within(await menu(2)).getByRole("menuitem", { name: "Encaminhar" }));
   const dialog = await screen.findByRole("dialog", { name: "Encaminhar mensagem" });
   fireEvent.click(await within(dialog).findByLabelText("Encaminhar para Colega Um"));
-  fireEvent.click(within(dialog).getByLabelText("Encaminhar para Colega Dois"));
-  fireEvent.click(within(dialog).getByRole("button", { name: "Encaminhar (2)" }));
+  pointerClick(within(dialog).getByLabelText("Encaminhar para Colega Dois"));
+  pointerClick(within(dialog).getByRole("button", { name: "Encaminhar (2)" }));
   await waitFor(() => expect(s.api.forward).toHaveBeenCalledTimes(2));
   for (const call of vi.mocked(s.api.forward!).mock.calls) {
     expect(call[0]).toBe("c");
@@ -271,21 +278,21 @@ it("sent/delivered/read and info derive from server receipts, and read removes c
   expect(screen.getAllByLabelText("Enviada").length).toBe(2);
   act(() => s.receipt(3, 0));
   await screen.findAllByLabelText("Entregue");
-  fireEvent.click(within(await menu(1)).getByRole("menuitem", { name: "Informações" }));
+  pointerClick(within(await menu(1)).getByRole("menuitem", { name: "Informações" }));
   const dialog = await screen.findByRole("dialog", { name: "Informações da mensagem" });
   expect(within(dialog).getByText("Confirmado")).toBeTruthy();
   expect(within(dialog).getByText("Ainda não confirmado")).toBeTruthy();
-  fireEvent.click(within(dialog).getByLabelText("Fechar janela"));
+  pointerClick(within(dialog).getByLabelText("Fechar janela"));
   act(() => s.receipt(3, 3));
   await screen.findAllByLabelText("Lida");
   expect(within(await menu(1)).queryByRole("menuitem", { name: "Cancelar envio" })).toBeNull();
 });
 it("cancels only after confirmation, redacts text and removes prohibited actions", async () => {
   const s = await open();
-  fireEvent.click(within(await menu(1)).getByRole("menuitem", { name: "Cancelar envio" }));
+  pointerClick(within(await menu(1)).getByRole("menuitem", { name: "Cancelar envio" }));
   const dialog = await screen.findByRole("dialog", { name: "Cancelar esta mensagem?" });
   expect(s.api.cancel).not.toHaveBeenCalled();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar envio" }));
+  pointerClick(within(dialog).getByRole("button", { name: "Cancelar envio" }));
   await screen.findByText("Você cancelou esta mensagem");
   expect(screen.queryByText("Olá original")).toBeNull();
   const actions = await menu(1);
@@ -298,9 +305,9 @@ it("already-read cancellation failure stays visible without losing the original 
     new ChatActionError("Não é mais possível cancelar esta mensagem porque ela já foi lida."),
   );
   await open(s);
-  fireEvent.click(within(await menu(1)).getByRole("menuitem", { name: "Cancelar envio" }));
+  pointerClick(within(await menu(1)).getByRole("menuitem", { name: "Cancelar envio" }));
   const dialog = await screen.findByRole("dialog", { name: "Cancelar esta mensagem?" });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar envio" }));
+  pointerClick(within(dialog).getByRole("button", { name: "Cancelar envio" }));
   expect(await within(dialog).findByText(/Não é mais possível cancelar/)).toBeTruthy();
   expect(screen.getByText("Olá original")).toBeTruthy();
 });
@@ -320,7 +327,7 @@ it("dialogs and menus remain inside the fullscreen host and Escape preserves Cha
     await open();
     const actions = await menu(1);
     expect(fullscreen.contains(actions)).toBe(true);
-    fireEvent.click(within(actions).getByRole("menuitem", { name: "Informações" }));
+    pointerClick(within(actions).getByRole("menuitem", { name: "Informações" }));
     const dialog = await screen.findByRole("dialog", { name: "Informações da mensagem" });
     expect(fullscreen.contains(dialog)).toBe(true);
     fireEvent.keyDown(dialog, { key: "Escape" });
@@ -335,7 +342,7 @@ it("dialogs and menus remain inside the fullscreen host and Escape preserves Cha
 });
 it("a received cancellation closes its open picker and restores normal reading", async () => {
   const s = await open();
-  fireEvent.click(within(await menu(2)).getByRole("menuitem", { name: "Reagir" }));
+  pointerClick(within(await menu(2)).getByRole("menuitem", { name: "Reagir" }));
   await screen.findByRole("dialog", { name: "Reagir à mensagem" });
   act(() => s.incoming({ ...msg(2, false), body: null, cancelled_at: "2026-10-15T11:00:00Z" }));
   await waitFor(() =>
@@ -346,20 +353,20 @@ it("a received cancellation closes its open picker and restores normal reading",
 });
 it("blocks reading messages covered by an open dialog until it closes", async () => {
   const s = await open();
-  fireEvent.click(within(await menu(1)).getByRole("menuitem", { name: "Informações" }));
+  pointerClick(within(await menu(1)).getByRole("menuitem", { name: "Informações" }));
   const dialog = await screen.findByRole("dialog", { name: "Informações da mensagem" });
   vi.mocked(s.api.read).mockClear();
   act(() => s.incoming({ ...msg(4, false), body: "Coberta pelo diálogo" }));
   await screen.findByText("Coberta pelo diálogo");
   expect(s.api.read).not.toHaveBeenCalled();
-  fireEvent.click(within(dialog).getByLabelText("Fechar janela"));
+  pointerClick(within(dialog).getByLabelText("Fechar janela"));
   await waitFor(() => expect(s.api.read).toHaveBeenCalledWith("c", 4));
 });
 it("reuses the installed full emoji picker without new dependencies", async () => {
   await open();
-  fireEvent.click(within(await menu(1)).getByRole("menuitem", { name: "Reagir" }));
+  pointerClick(within(await menu(1)).getByRole("menuitem", { name: "Reagir" }));
   const dialog = await screen.findByRole("dialog", { name: "Reagir à mensagem" });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Mais emojis" }));
+  pointerClick(within(dialog).getByRole("button", { name: "Mais emojis" }));
   expect(await within(dialog).findByPlaceholderText("Buscar emoji...")).toBeTruthy();
 });
 
@@ -370,7 +377,7 @@ it("opens a compact anchored quick toolbar directly from the bubble and expands 
   expect(within(bar).getAllByRole("button")).toHaveLength(7);
   expect(screen.queryByPlaceholderText("Buscar emoji...")).toBeNull();
   expect(bar.closest("[data-chat-reaction-bar]")).toBeTruthy();
-  fireEvent.click(within(bar).getByRole("button", { name: "Mais emojis" }));
+  pointerClick(within(bar).getByRole("button", { name: "Mais emojis" }));
   expect(await screen.findByPlaceholderText("Buscar emoji...")).toBeTruthy();
 });
 it("shows one gray check, two gray checks, then two contrasting blue checks", async () => {
@@ -395,10 +402,10 @@ it("read messages replace cancel with confirmed soft delete and remove incompati
   await screen.findAllByLabelText("Lida");
   const actions = await menu(1);
   expect(within(actions).queryByText("Cancelar envio")).toBeNull();
-  fireEvent.click(within(actions).getByRole("menuitem", { name: "Apagar mensagem" }));
+  pointerClick(within(actions).getByRole("menuitem", { name: "Apagar mensagem" }));
   const dialog = await screen.findByRole("dialog", { name: "Apagar esta mensagem?" });
   expect(s.api.delete).not.toHaveBeenCalled();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Apagar mensagem" }));
+  pointerClick(within(dialog).getByRole("button", { name: "Apagar mensagem" }));
   await screen.findByText("Você apagou esta mensagem");
   expect(screen.queryByText("Olá original")).toBeNull();
   const remaining = await menu(1);
@@ -430,13 +437,13 @@ it("Realtime groups different reactions in one overlaid badge and switching repl
   const badge = await screen.findByLabelText("Reações da mensagem 1");
   expect(badge.className).toContain("absolute");
   expect(within(badge).getByLabelText("Total de reações").textContent).toBe("2");
-  fireEvent.click(within(badge).getByRole("button", { name: "Reação 😂 (1)" }));
+  pointerClick(within(badge).getByRole("button", { name: "Reação 😂 (1)" }));
   await waitFor(() => expect(s.api.react).toHaveBeenLastCalledWith("c", "m1", "😂"));
   expect(within(badge).queryByRole("button", { name: "Reação ❤️ (1)" })).toBeNull();
 });
 it("received deletion redacts both its bubble and existing reply preview", async () => {
   const s = await open();
-  fireEvent.click(within(await menu(2)).getByRole("menuitem", { name: "Responder" }));
+  pointerClick(within(await menu(2)).getByRole("menuitem", { name: "Responder" }));
   fireEvent.change(screen.getByLabelText("Mensagem"), { target: { value: "Resposta" } });
   fireEvent.click(screen.getByRole("button", { name: "Enviar mensagem" }));
   await screen.findByRole("button", { name: /Ver mensagem respondida/ });
@@ -444,4 +451,50 @@ it("received deletion redacts both its bubble and existing reply preview", async
   expect(await screen.findAllByText("Mensagem apagada")).toHaveLength(2);
   expect(screen.queryByText("Texto da colega")).toBeNull();
   expect(screen.queryByLabelText("Opções da mensagem 2")).toBeNull();
+});
+
+it.each(["outside", "Escape"])("closes the entire message action group on %s without closing Chat", async (kind) => {
+  await open();
+  const actions = await menu(1);
+  await screen.findByRole("dialog", { name: "Reagir à mensagem" });
+  if (kind === "outside") fireEvent.pointerDown(document.body, { button: 0 });
+  else fireEvent.keyDown(actions, { key: "Escape" });
+  await waitFor(() => {
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Reagir à mensagem" })).toBeNull();
+  });
+  expect(screen.getByRole("dialog", { name: "Mensagens privadas" })).toBeTruthy();
+});
+
+it("keeps the reaction portal alive through pointerdown while the menu is also open", async () => {
+  const s = await open();
+  await menu(1);
+  const picker = await screen.findByRole("dialog", { name: "Reagir à mensagem" });
+  const plus = within(picker).getByRole("button", { name: "Mais emojis" });
+  pointerClick(plus);
+  expect(await within(picker).findByPlaceholderText("Buscar emoji...")).toBeTruthy();
+  expect(screen.getByRole("menu")).toBeTruthy();
+  const emoji = within(picker).getByRole("button", { name: "Reagir com ❤️" });
+  // Exercise a nested target too, as a real click can land on the emoji image.
+  pointerClick(emoji.querySelector("img") ?? emoji);
+  await waitFor(() => expect(s.api.react).toHaveBeenCalledWith("c", "m1", "❤️"));
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "Reagir à mensagem" })).toBeNull();
+});
+
+it("executes a menu action after dragging the real Chat header", async () => {
+  await open();
+  const panel = screen.getByRole("dialog", { name: "Mensagens privadas" });
+  const header = screen.getByText("Mensagens").closest("header");
+  if (!header) throw new Error("Missing drag header");
+  Object.defineProperty(header, "setPointerCapture", { configurable: true, value: vi.fn() });
+  Object.defineProperty(header, "releasePointerCapture", { configurable: true, value: vi.fn() });
+  const before = panel.style.top;
+  fireEvent.pointerDown(header, { button: 0, clientX: 800, clientY: 80 });
+  fireEvent.pointerMove(header, { clientX: 700, clientY: 180 });
+  fireEvent.pointerUp(header, { clientX: 700, clientY: 180 });
+  expect(panel.style.top).not.toBe(before);
+  pointerClick(within(await menu(1)).getByRole("menuitem", { name: "Copiar" }));
+  await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Olá original"));
+  expect(screen.queryByRole("menu")).toBeNull();
 });
