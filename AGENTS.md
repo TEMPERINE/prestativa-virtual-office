@@ -19,3 +19,6 @@
 - Alpha V5: alpha-v5.ts and scripts/alpha_v5.py stay byte-identical; sprites/v5/ unimported until approved — parity, no asset swap.
 
 - Embedded meeting portals use body-scoped layer tokens above the Office meetings panel, with dialog content above its backdrop; defaults remain unchanged outside that panel to avoid cross-page stacking regressions.
+<!-- LOVABLE:BEGIN -->
+- Chat menus and reaction portals share element refs for outside-pointer ownership in both directions, so capture cannot unmount items before click selection.
+<!-- LOVABLE:END -->
