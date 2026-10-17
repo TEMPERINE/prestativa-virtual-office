@@ -109,7 +109,7 @@ export function MessageActions({
         <Menu.Portal container={host}>
           <Menu.Content
             ref={menuContentRef}
-            onPointerDownOutside={(event) => {
+            onInteractOutside={(event) => {
               // The reaction portal belongs to this menu's interactive group.
               const original = event.detail.originalEvent;
               const content = reactionContentRef.current;
