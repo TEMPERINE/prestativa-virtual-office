@@ -5,6 +5,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { isCoarsePointer } from "@/lib/mobile/input-mode";
 
 type Point = { x: number; y: number };
 type Drag = { id: number; target: HTMLElement; start: Point; origin: Point };
@@ -85,7 +86,8 @@ export function useChatPanelPosition(host: Element | null) {
     function update() {
       endDrag();
       setDragging(false);
-      if (window.innerWidth < SM) {
+      // Touch/coarse pointer: never draggable (fullscreen sheet via CSS).
+      if (window.innerWidth < SM || isCoarsePointer()) {
         setLayout({ desktop: false, point: null });
         return;
       }

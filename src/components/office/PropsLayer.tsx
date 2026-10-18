@@ -6,6 +6,7 @@ import { loadCustomPropsFromCloud } from "@/lib/custom-props";
 import { publishProps, publishFrames } from "@/lib/prop-gates";
 import { getCurrentWorkspaceId, subscribeCurrentWorkspaceId } from "@/lib/workspace/current";
 import { toast } from "sonner";
+import { useCoarsePointer } from "@/lib/mobile/input-mode";
 import { BellPopover } from "./BellPopover";
 import { OfficeCelebrationPopup } from "./OfficeCelebrationPopup";
 import {
@@ -43,6 +44,8 @@ export function PropsLayer({ selfX, selfY, focusedRect = null }: Props) {
   // calcular o próximo tick sem depender do eco do realtime voltar primeiro.
   const lastSentTickRef = useRef<Record<string, number>>({});
   const [, setCatalogVersion] = useState(0);
+  const coarse = useCoarsePointer();
+  const [pressedId, setPressedId] = useState<string | null>(null);
   const selfRef = useRef({ x: selfX, y: selfY });
   selfRef.current = { x: selfX, y: selfY };
   const propsRef = useRef(propsList);
@@ -494,6 +497,43 @@ export function PropsLayer({ selfX, selfY, focusedRect = null }: Props) {
         );
       })}
 
+      {/* Touch: todo prop interativo é tocável à distância e chama o MESMO
+          handler da tecla X (requestInteract). Não renderiza para mouse. */}
+      {coarse && rendered.map((p) => {
+        if (!p.interactive) return null;
+        const def = getPropDef(p.defId);
+        if (!def?.interactive) return null;
+        const hNorm = p.w / def.aspectRatio;
+        const refY = p.y - hNorm * (1 - (def.depthRefY ?? 1));
+        const focusOffset = focusedRect && def.foregroundWhenFocused ? 60000 : 0;
+        return (
+          <button
+            key={`touch-${p.id}`}
+            type="button"
+            data-touch-prop={p.id}
+            aria-label={`Interagir com ${def.label}`}
+            className={`absolute bg-transparent border-0 p-0 rounded-md transition-transform duration-150 motion-reduce:transition-none ${pressedId === p.id ? "scale-95 ring-2 ring-primary/60 motion-reduce:scale-100" : ""}`}
+            style={{
+              left: `${p.x * 100}%`,
+              top: `${p.y * 100}%`,
+              width: `${p.w * 100}%`,
+              height: `${hNorm * 100}%`,
+              minWidth: 44,
+              minHeight: 44,
+              transform: "translate(-50%, -100%)",
+              zIndex: 500_000 + focusOffset + Math.max(1, Math.round(refY * 1000)),
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              setPressedId(p.id);
+              window.setTimeout(() => setPressedId((c) => (c === p.id ? null : c)), 160);
+              requestInteract(p);
+            }}
+          />
+        );
+      })}
+
       {nearestInteractive && (() => {
         const def = getPropDef(nearestInteractive.defId);
         if (!def?.interactive) return null;
@@ -516,10 +556,16 @@ export function PropsLayer({ selfX, selfY, focusedRect = null }: Props) {
             }}
             aria-label={`Interagir com ${def.label}`}
           >
-            <span className="opacity-80">Aperte</span>
-            <kbd className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded bg-white/15 border border-white/20 font-bold text-white text-[10px] leading-none">
-              {keyLabel}
-            </kbd>
+            {coarse ? (
+              <span className="opacity-90">Toque para interagir</span>
+            ) : (
+              <>
+                <span className="opacity-80">Aperte</span>
+                <kbd className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded bg-white/15 border border-white/20 font-bold text-white text-[10px] leading-none">
+                  {keyLabel}
+                </kbd>
+              </>
+            )}
           </button>
         );
       })()}
