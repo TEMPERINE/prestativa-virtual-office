@@ -373,11 +373,11 @@ it("desktop: nenhum controle mobile aparece para mouse", async () => {
 });
 it("desktop: drag com mouse continua pan, wheel continua zoom, duplo clique não cria rota", async () => {
   const done = await ready();
+  fireEvent.wheel(stage(), { deltaY: -100, clientX: 700, clientY: 500 });
+  await waitFor(() => expect(zoomLayer().style.transform).not.toBe("scale(1)"));
   const before = panLayer().style.transform;
   ptr(stage(), "pointerdown", 700, 500, "mouse"); ptr(stage(), "pointermove", 600, 450, "mouse"); ptr(stage(), "pointerup", 600, 450, "mouse");
   await waitFor(() => expect(panLayer().style.transform).not.toBe(before));
-  fireEvent.wheel(stage(), { deltaY: -100, clientX: 700, clientY: 500 });
-  await waitFor(() => expect(zoomLayer().style.transform).not.toBe("scale(1)"));
   ptr(stage(), "pointerdown", 700, 500, "mouse"); ptr(stage(), "pointerup", 700, 500, "mouse");
   ptr(stage(), "pointerdown", 700, 500, "mouse"); ptr(stage(), "pointerup", 700, 500, "mouse");
   expect(screen.queryByTestId("touch-route-marker")).toBeNull();
