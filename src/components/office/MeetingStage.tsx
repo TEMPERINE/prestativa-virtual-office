@@ -1,3 +1,4 @@
+import { isCoarsePointer } from "@/lib/mobile/input-mode";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -180,7 +181,9 @@ export function MeetingStage({ mode, participants, screens, raisedHands, onStopL
 
 /** Celulares sem getDisplayMedia (iOS/Android) não mostram "Compartilhar tela". */
 function canDisplayMedia() {
-  return typeof navigator === "undefined" || typeof navigator.mediaDevices?.getDisplayMedia === "function";
+  // Só oculta em toque: desktop mantém o comportamento atual.
+  if (!isCoarsePointer() || typeof navigator === "undefined") return true;
+  return typeof navigator.mediaDevices?.getDisplayMedia === "function";
 }
 
 export function MeetingControlsBar({ c }: { c: StageControls }) {

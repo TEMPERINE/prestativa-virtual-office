@@ -1968,6 +1968,7 @@ export function OfficeScene({
 
   // ===== Touch (coarse pointer) controls — never reached by mouse/keyboard =====
   // Rota do double tap: waypoints consumidos pelo mesmo loop de auto-walk.
+  const coarsePointer = useCoarsePointer();
   const routeRef = useRef<Point[]>([]);
   const routeGoalRef = useRef<Point | null>(null);
   const touchPointersRef = useRef<Set<number>>(new Set());
