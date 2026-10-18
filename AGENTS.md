@@ -5,13 +5,8 @@
 - Gravação de reunião no RTC V2 é server-side (LiveKit RoomComposite Egress + template `/recording/$meetingId`, estado em `meeting_egress`, webhook `/api/public/livekit-egress`); nunca getDisplayMedia/MediaRecorder no V2 — gravação não pode depender do navegador de quem iniciou.
 - Motor RTC = só VITE_RTC_ENGINE (src/lib/rtc/rtc-engine.ts), igual em preview e produção, padrão v2; sem regra por hostname — rollback = VITE_RTC_ENGINE=v1 + republicar, V1 mantido até limpeza separada.
 - Gravações: src/lib/meetings/recording-storage.server.ts decide backend (Egress `complete` com mesmo file_path → S3/R2 externo; senão Lovable Cloud WebM) e só o servidor assina/baixa — credenciais S3 nunca vão ao navegador.
-- RTC v2 mic: OFF = mute com `stopOnMute` do LiveKit (captura real parada, mesma track/publicação) e `voluntaryStop` em local-media.ts separa parada voluntária de perda de device — evita indicador de captura aceso e publicações duplicadas.
-- Privacy Guard (src/lib/rtc/privacy-guard.ts) recebe do runtime só isCamOn/setCam — mic e screen share ficam fora do seu alcance por construção, evitando cortar a fala de quem troca de aba.
 - Meeting UI V2 (grid/apresentação/roster) fica atrás de VITE_MEETING_UI_V2 (src/lib/meeting-ui/layout.ts), independente de VITE_RTC_ENGINE; é só composição visual e cada stream vai a um único <video> por vez — rollback visual sem tocar RTC.
 - Follow request state uses createFollowRequestCenter (src/lib/notifications/follow-requests.ts), separate from toast/sound; Notification API uses only OfficeNotificationService (notification-service.ts), so desktop adapters cannot change Follow/onboarding flows.
-- RTC On Demand (VITE_RTC_ON_DEMAND, padrão off) decide só o destino em src/lib/rtc/rtc-demand-controller.ts (zoneId vem apenas do meu contexto; Presence.mediaLocation só conta ocupantes) e o runtime repassa ao RoomManager — o RoomManager segue único dono de connect/disconnect. No lobby ("all") a proximidade usa withinSpatialRange/computeNearby de spatial-subscriptions.ts, o mesmo critério do SpatialSubscriptions — evita divergência de raios.
-- Último mic e câmera escolhidos ficam só no navegador (src/lib/rtc/mic-preference.ts, deviceId por usuário, nunca intent), aplicados com deviceId exact; fallback ao padrão nunca sobrescreve a escolha — novo login segue mic OFF.
-- RTC On Demand sem grace de mídia: sala privada que cai para 1 ou saída física da zona soltam a Room na hora; lobby tem só debounce técnico (≤1s). Continuidade de 15s existe apenas no MeetingTrackerV2 (ADMIN_LEAVE_GRACE_MS) — privacidade: ninguém ouve/vê uma sala de onde saiu.
 - Meeting Inactivity Guard (VITE_MEETING_IDLE_GUARD off|warn|enforce, padrão off) é camada isolada: controlador puro em src/lib/meetings/meeting-inactivity-controller.ts + canal efêmero workspace:{id}:meeting-idle; eject só move o próprio avatar e encerra o histórico via MeetingTrackerV2.endNow — nunca chama connect/disconnect, o RTC On Demand decide a mídia.
 - Office tools (meetings, profile, character, notes) open as overlays via `?panel=` on `/workspaces/$workspaceId` (src/lib/office/overlay.ts); never navigate away from the workspace route from the Office — leaving it unmounts OfficeScene, Presence, session and RTC.
 - OfficeToastLayer presents existing notices and the Sonner stream only while Office is mounted; suspend the global Sonner viewport there to avoid duplicate timers, and prioritize all action notices ahead of the approximate three-item ordinary queue without changing RTC or invitation state.
@@ -19,6 +14,7 @@
 - Alpha V5: alpha-v5.ts and scripts/alpha_v5.py stay byte-identical; sprites/v5/ unimported until approved — parity, no asset swap.
 
 - Embedded meeting portals use body-scoped layer tokens above the Office meetings panel, with dialog content above its backdrop; defaults remain unchanged outside that panel to avoid cross-page stacking regressions.
+- Subdirectories (e.g. src/lib/rtc) have their own AGENTS.md; read it before changing files there.
 <!-- LOVABLE:BEGIN -->
 - Chat menus and reaction portals share element refs for outside-pointer ownership in both directions, so capture cannot unmount items before click selection.
 <!-- LOVABLE:END -->
