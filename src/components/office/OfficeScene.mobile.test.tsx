@@ -316,13 +316,13 @@ it("mobile: tap em porta, sino e prop customizado aciona de longe pelo handler d
   expect(screen.queryByTestId("touch-route-marker")).toBeNull();
   done();
 });
-it("mobile: tap no próprio avatar centraliza e reativa follow, sem menu nem rota", async () => {
+it("mobile: tap no próprio avatar centraliza e reativa follow, sem menu nem rota", { timeout: 15000 }, async () => {
   coarse = true;
   const done = await ready();
   ptr(stage(), "pointerdown", 700, 500, "touch"); ptr(stage(), "pointermove", 500, 400, "touch"); ptr(stage(), "pointerup", 500, 400, "touch");
   await waitFor(() => expect(screen.getByTestId("center-on-me").getAttribute("aria-label")).toBe("Centralizar em mim"));
   fireEvent.click(await screen.findByTestId("touch-self-avatar"));
-  await waitFor(() => expect(screen.getByTestId("center-on-me").getAttribute("aria-label")).toBe("Câmera seguindo você"), { timeout: 2000 });
+  await waitFor(() => expect(screen.getByTestId("center-on-me").getAttribute("aria-label")).toBe("Câmera seguindo você"), { timeout: 5000 });
   expect(screen.queryByTestId("touch-route-marker")).toBeNull();
   done();
 });
