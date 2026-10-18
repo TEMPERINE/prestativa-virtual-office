@@ -22,3 +22,4 @@
 <!-- LOVABLE:BEGIN -->
 - Chat menus and reaction portals share element refs for outside-pointer ownership in both directions, so capture cannot unmount items before click selection.
 <!-- LOVABLE:END -->
+- Mobile Office controls (src/lib/mobile/*) activate only for pointerType "touch" / (pointer: coarse), never by width: touch gestures feed the existing camera state and auto-walk waypoints (A* via canMoveOnMap + isMoveGated), and touch prop taps call PropsLayer requestInteract — keeps desktop untouched and one movement/interaction path.
