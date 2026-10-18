@@ -80,7 +80,7 @@ function appleEmojiUrl(emoji: string): string | null {
 const REACTION_DURATION_MS = 3000;
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
-import { LogOut, Mic, MicOff, Video, VideoOff, MonitorUp, Users, Pencil, User as UserIcon, MessageCircle, StickyNote, X as XIcon, Plus, Minus, Locate, ChevronLeft, ChevronRight, Footprints, UserPlus, Hand, Circle, Square, Loader2, Smile } from "lucide-react";
+import { LogOut, Mic, MicOff, Video, VideoOff, MonitorUp, Users, Pencil, User as UserIcon, MessageCircle, StickyNote, X as XIcon, Plus, Minus, Locate, ChevronLeft, ChevronRight, Footprints, UserPlus, Hand, Circle, Square, Loader2, Smile, Smartphone, Monitor } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import EmojiPicker, { EmojiStyle, Theme as EmojiTheme } from "emoji-picker-react";
 import { Link } from "@tanstack/react-router";
@@ -387,6 +387,9 @@ export function OfficeScene({
   // game-state source, so idle players never disappear just because a presence
   // heartbeat or browser tab event was missed.
   const [presentPeerIds, setPresentPeerIds] = useState<Set<string>>(() => new Set());
+  // Modo de entrada anunciado por cada peer (V1 presence). V2 vem do payload
+  // do Presence V2 (inputMode); aqui só o fallback legado precisa de estado.
+  const [peerInputModes, setPeerInputModes] = useState<Record<string, "touch" | "mouse">>({});
   // LWW tracker — freshest per-peer ts from BROADCAST/PRESENCE (peer client clock).
   // Used to dedupe duplicate live samples from the same producer.
   // IMPORTANT: do NOT mix with DB updated_at — server clock vs peer client clock
@@ -1366,7 +1369,7 @@ export function OfficeScene({
     // Presence is only an online heartbeat. It must not be allowed to move an
     // existing avatar, because an old/hidden tab can keep heartbeating SPAWN
     // and pull a stopped colleague back to the origin.
-    type PresenceState = { user_id: string; x: number; y: number; zone: string; facing?: Facing; ts: number };
+    type PresenceState = { user_id: string; x: number; y: number; zone: string; facing?: Facing; ts: number; input_mode?: "touch" | "mouse" };
     const presenceCh = supabase.channel(`${POSITION_PRESENCE_CHANNEL}:${wsSuffix}`, {
       config: { presence: { key: meIdRef.current ?? `anon:${realtimeChannelSuffix}` } },
     });
@@ -1379,6 +1382,10 @@ export function OfficeScene({
         const prev = presenceLastTs.get(s.user_id) ?? 0;
         if (s.ts <= prev) continue;
         presenceLastTs.set(s.user_id, s.ts);
+        if (s.input_mode)
+          setPeerInputModes((prevModes) =>
+            prevModes[s.user_id] === s.input_mode ? prevModes : { ...prevModes, [s.user_id]: s.input_mode! },
+          );
         maybeStartRemoteTeleportFromCurrent(s.user_id, { x: s.x, y: s.y }, s.ts);
         setPositions((p) => {
           const cur = p[s.user_id];
