@@ -3412,6 +3412,21 @@ export function OfficeScene({
                       }
                     />
                   )}
+                  {isMe && coarsePointer && (
+                    <button
+                      type="button"
+                      data-testid="touch-self-avatar"
+                      aria-label="Centralizar câmera em mim"
+                      className="absolute left-1/2 -translate-x-1/2 pointer-events-auto bg-transparent border-0 p-0"
+                      style={{ bottom: 0, width: 56, height: 96, zIndex: 2_000_000_000 }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFollowMe(false);
+                        tweenCenterOn(posRef.current.x, posRef.current.y, zoomRef.current, 400, () => setFollowMe(true));
+                      }}
+                    />
+                  )}
                 </div>
               </div>
             </div>
