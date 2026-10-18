@@ -751,6 +751,12 @@ export function OfficeScene({
 
   // ---- RTC v2: posição própria → runtime (contexto, spatial, movement) ----
   const rtcV2Ready = !!rtc.v2;
+  // Anuncia o modo de entrada (celular/desktop) no Presence V2 — apenas
+  // informativo (ícone na Equipe); nunca influencia decisões de mídia/RTC.
+  useEffect(() => {
+    if (!IS_RTC_V2) return;
+    rtcV2Ref.current?.presence.setInputMode(coarsePointer ? "touch" : "mouse");
+  }, [coarsePointer, rtcV2Ready]);
   useEffect(() => {
     if (!IS_RTC_V2 || !rtcV2Ready || !positionHydratedRef.current) return;
     const v2 = rtcV2Ref.current;
@@ -1498,6 +1504,7 @@ export function OfficeScene({
           await presenceCh.track({
             user_id: uid, x: cur.x, y: cur.y,
             zone: callZoneAt(cur), facing: facingRef.current, ts: Date.now(),
+            input_mode: isCoarsePointer() ? "touch" : "mouse",
           });
         } catch { /* noop */ }
       });
@@ -1513,6 +1520,7 @@ export function OfficeScene({
       void presenceCh.track({
         user_id: uid, x: cur.x, y: cur.y,
         zone: callZoneAt(cur), facing: facingRef.current, ts: Date.now(),
+        input_mode: isCoarsePointer() ? "touch" : "mouse",
       }).catch(() => { /* noop */ });
     }, 1000);
 
