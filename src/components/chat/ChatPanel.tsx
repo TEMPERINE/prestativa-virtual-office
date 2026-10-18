@@ -7,6 +7,7 @@ import type { ChatState, ChatStore } from "@/lib/chat/store";
 import { ChatThread } from "./ChatThread";
 import { findChatSticker } from "@/lib/chat/stickers";
 import { useChatPanelPosition } from "./use-chat-panel-position";
+import { mobileFullscreenStyle, useMobileViewport } from "@/lib/mobile/viewport";
 
 export function ChatPanel({
   state,
@@ -27,12 +28,15 @@ export function ChatPanel({
     return () => document.removeEventListener("fullscreenchange", update);
   }, []);
   const position = useChatPanelPosition(host);
+  // Touch: altura real visível (teclado virtual) via VisualViewport, só enquanto aberto.
+  const viewport = useMobileViewport({ trackVisual: true });
   const selected = state.conversations.find((c) => c.id === state.selectedId);
   if (!host) return null;
   return createPortal(
     <section
       ref={position.panelRef}
-      style={position.style}
+      style={position.style ?? mobileFullscreenStyle(viewport)}
+      data-keyboard-open={viewport.keyboardOpen ? "true" : undefined}
       role="dialog"
       aria-modal="false"
       aria-label="Mensagens privadas"
