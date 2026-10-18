@@ -1968,6 +1968,7 @@ export function OfficeScene({
 
   // ===== Touch (coarse pointer) controls — never reached by mouse/keyboard =====
   // Rota do double tap: waypoints consumidos pelo mesmo loop de auto-walk.
+  const coarsePointer = useCoarsePointer();
   const routeRef = useRef<Point[]>([]);
   const routeGoalRef = useRef<Point | null>(null);
   const touchPointersRef = useRef<Set<number>>(new Set());
@@ -3410,6 +3411,21 @@ export function OfficeScene({
                           onMessage={officeChat ? () => { officeChat.openPeer(profile.id); setAvatarMenuUid(null); } : undefined}
                         />
                       }
+                    />
+                  )}
+                  {isMe && coarsePointer && (
+                    <button
+                      type="button"
+                      data-testid="touch-self-avatar"
+                      aria-label="Centralizar câmera em mim"
+                      className="absolute left-1/2 -translate-x-1/2 pointer-events-auto bg-transparent border-0 p-0"
+                      style={{ bottom: 0, width: 56, height: 96, zIndex: 2_000_000_000 }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFollowMe(false);
+                        tweenCenterOn(posRef.current.x, posRef.current.y, zoomRef.current, 400, () => setFollowMe(true));
+                      }}
                     />
                   )}
                 </div>
