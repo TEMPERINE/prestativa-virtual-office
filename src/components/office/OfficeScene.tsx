@@ -32,6 +32,8 @@ import { isMoveGated } from "@/lib/prop-gates";
 import { findTouchRoute } from "@/lib/mobile/touch-route";
 import { createTouchGestures, screenToMap, GESTURE_EXEMPT } from "@/lib/mobile/touch-gestures";
 import { isCoarsePointer } from "@/lib/mobile/input-mode";
+import { useMobileViewport } from "@/lib/mobile/viewport";
+import { MobileZoneSheet } from "./MobileZoneSheet";
 
 const WALK_FRAME_MS = 110;
 
@@ -1968,7 +1970,11 @@ export function OfficeScene({
 
   // ===== Touch (coarse pointer) controls — never reached by mouse/keyboard =====
   // Rota do double tap: waypoints consumidos pelo mesmo loop de auto-walk.
-  const coarsePointer = useCoarsePointer();
+  const mobileViewport = useMobileViewport();
+  const coarsePointer = mobileViewport.coarse;
+  const [zoneSheetId, setZoneSheetId] = useState<string | null>(null);
+  // Tap (touch) handler lives in a ref so the gesture controller (created once) sees fresh state.
+  const touchTapRef = useRef<(p: Point) => void>(() => {});
   const routeRef = useRef<Point[]>([]);
   const routeGoalRef = useRef<Point | null>(null);
   const touchPointersRef = useRef<Set<number>>(new Set());
@@ -2015,7 +2021,8 @@ export function OfficeScene({
         if (tweenRafRef.current != null) { cancelAnimationFrame(tweenRafRef.current); tweenRafRef.current = null; }
         setFollowMe(false);
       },
-      onTap: () => { /* single tap no chão: não move (elementos tratam o próprio toque) */ },
+      // single tap no chão: nunca move; pode abrir o painel de mesa/área.
+      onTap: (p) => touchTapRef.current(p),
       onDoubleTap: (p) => {
         if (isMovementInputBlocked(panelRef.current)) return;
         const stage = stageRef.current;
@@ -2900,6 +2907,24 @@ export function OfficeScene({
   // Bounds place the card; only painted cells form the interactive hit area.
   const workspaceZones = useMemo(() => workspaceZonesForMap(loadOverrides()), [mapVersion]);
 
+  // Touch single tap: abre o painel da mesa/área sob o dedo (membership real do grid pintado).
+  touchTapRef.current = (p: Point) => {
+    if (zoneSheetId) { setZoneSheetId(null); return; }
+    const stage = stageRef.current;
+    if (!stage) return;
+    const m = screenToMap(p, { zoom: zoomRef.current, pan: panRef.current }, { w: stage.clientWidth, h: stage.clientHeight });
+    const map = loadOverrides();
+    const hit = workspaceZones.find((wz) => pointInMapZone(map, wz.id, m));
+    if (hit) setZoneSheetId(hit.id);
+  };
+
+  // Rotação/resize: preserva zoom e posição; só reclampa o pan (efeito de resize)
+  // e recentra se a câmera estiver seguindo.
+  useEffect(() => {
+    if (!followRef.current) return;
+    centerOn(posRef.current.x, posRef.current.y, zoomRef.current);
+  }, [mobileViewport.orientation, centerOn]);
+
 
 
   // "Presente no espaço" segue modelo de jogo colaborativo:
@@ -3226,7 +3251,7 @@ export function OfficeScene({
               zoneId={wz.id}
               path={wz.path}
               isHovered={isHovered}
-              onEnter={() => setHoveredZone(wz.id)}
+              onEnter={() => { if (!coarsePointer) setHoveredZone(wz.id); }}
               onLeave={() => setHoveredZone((cur) => (cur === wz.id ? null : cur))}
             >
               {ownerId ? (
@@ -3423,8 +3448,10 @@ export function OfficeScene({
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setFollowMe(false);
-                        tweenCenterOn(posRef.current.x, posRef.current.y, zoomRef.current, 400, () => setFollowMe(true));
+                        // follow ligado: o efeito de follow centraliza na hora (sem menu, sem rota).
+                        if (tweenRafRef.current != null) { cancelAnimationFrame(tweenRafRef.current); tweenRafRef.current = null; }
+                        centerOn(posRef.current.x, posRef.current.y, zoomRef.current);
+                        setFollowMe(true);
                       }}
                     />
                   )}
@@ -3649,9 +3676,42 @@ export function OfficeScene({
         {/* /Camera transform layer */}
 
         {/* Map navigation controls — float next to team panel (outside the box, follows collapse) */}
+        {coarsePointer && zoneSheetId && (() => {
+          const wz = workspaceZones.find((z) => z.id === zoneSheetId);
+          if (!wz) return null;
+          const ownerId = claims[wz.id];
+          const owner = ownerId ? profiles[ownerId] : null;
+          const isMine = !!(ownerId && me && ownerId === me.id);
+          const iHaveAClaim = !!(me && Object.values(claims).includes(me.id));
+          const close = () => setZoneSheetId(null);
+          const actions = [] as { id: string; label: string; onSelect: () => void; tone?: "primary" | "danger" }[];
+          if (!ownerId && !iHaveAClaim) actions.push({ id: "claim", label: "Reivindicar espaço", tone: "primary", onSelect: () => { close(); void claimZone(wz.id); } });
+          if (isMine) actions.push({ id: "leave", label: "Deixar mesa", tone: "danger", onSelect: () => { close(); void releaseClaim(); } });
+          if (ownerId && !isMine) actions.push({ id: "note", label: "Deixar recado", onSelect: () => {
+            close();
+            setComposeFor({ zoneId: wz.id, recipientId: ownerId, recipientName: owner?.display_name ?? "colega" });
+            setComposeText("");
+          } });
+          const online = ownerId ? positions[ownerId]?.is_online ?? false : false;
+          return (
+            <MobileZoneSheet
+              title={findZoneById(wz.id)?.label ?? "Espaço"}
+              subtitle={ownerId ? `${isMine ? "Sua mesa" : owner?.display_name ?? "Ocupado"}${!isMine ? (online ? " · online" : " · offline") : ""}` : "Espaço livre"}
+              actions={actions}
+              onClose={close}
+            />
+          );
+        })()}
+
         <div
           className="absolute bottom-6 pointer-coarse:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] flex flex-col gap-2 z-[90] pointer-events-auto transition-all"
-          style={{ right: showTeam ? "calc(19rem + 0.5rem)" : "2rem" }}
+          style={
+            coarsePointer && mobileViewport.orientation === "landscape"
+              // Deitado: coluna no meio da borda direita, fora do notch/barras e do personagem centralizado.
+              ? { right: "calc(0.75rem + env(safe-area-inset-right))", top: "50%", bottom: "auto", transform: "translateY(-50%)" }
+              : { right: showTeam ? "calc(19rem + 0.5rem)" : "2rem" }
+          }
+          data-testid="map-controls"
           data-no-map-gesture
         >
           <button
