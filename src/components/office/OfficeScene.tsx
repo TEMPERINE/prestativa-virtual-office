@@ -32,6 +32,8 @@ import { isMoveGated } from "@/lib/prop-gates";
 import { findTouchRoute } from "@/lib/mobile/touch-route";
 import { createTouchGestures, screenToMap, GESTURE_EXEMPT } from "@/lib/mobile/touch-gestures";
 import { isCoarsePointer } from "@/lib/mobile/input-mode";
+import { useMobileViewport } from "@/lib/mobile/viewport";
+import { MobileZoneSheet } from "./MobileZoneSheet";
 
 const WALK_FRAME_MS = 110;
 
