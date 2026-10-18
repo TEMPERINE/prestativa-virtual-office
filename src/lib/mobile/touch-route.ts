@@ -145,7 +145,7 @@ function smooth(start: Point, path: Point[], ok: (a: Point, b: Point) => boolean
 }
 
 export function findTouchRoute(map: MapOverrides | null, start: Point, target: Point, opts: RouteOptions = {}): RouteResult {
-  const tol = opts.snapTolerance ?? 0.03;
+  const tol = opts.snapTolerance ?? 0.04;
   const max = opts.maxExpanded ?? 60000;
   const goal = snapToWalkable(map, target, tol);
   if (!goal) return null;

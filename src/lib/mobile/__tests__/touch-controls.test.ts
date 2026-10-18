@@ -28,7 +28,7 @@ describe("touch route (A*)", () => {
   it("destino dentro da parede é corrigido para ponto próximo", () => {
     const r = findTouchRoute(MAP, A, { x: 0.5125, y: 0.3 })!;
     expect(r).not.toBeNull();
-    expect(Math.abs(r.goal.x - 0.5125)).toBeLessThan(0.03);
+    expect(Math.abs(r.goal.x - 0.5125)).toBeLessThan(0.04);
   });
   it("destino inválido sem ponto próximo é rejeitado", () => {
     const solid = gridMap(40, 40, Array.from({ length: 40 * 40 }, (_, i) => [i % 40, Math.floor(i / 40)] as [number, number]).filter(([c, r]) => c > 25 || r > 25 ? false : c > 10));
