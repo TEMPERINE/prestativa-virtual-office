@@ -3707,7 +3707,9 @@ export function OfficeScene({
         })()}
 
         <div
-          className="absolute bottom-6 pointer-coarse:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] flex flex-col gap-2 z-[90] pointer-events-auto transition-all"
+          // No toque os três botões ficam ocultos: pinça faz o zoom, arrastar move a câmera
+          // e tocar no próprio avatar centraliza/segue — mesma coisa, sem ocupar a tela.
+          className="absolute bottom-6 pointer-coarse:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] flex flex-col gap-2 z-[90] pointer-events-auto transition-all pointer-coarse:hidden"
           style={
             coarsePointer && mobileViewport.orientation === "landscape"
               // Deitado: coluna no meio da borda direita, fora do notch/barras e do personagem centralizado.
