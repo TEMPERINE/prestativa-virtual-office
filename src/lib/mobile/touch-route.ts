@@ -20,9 +20,10 @@ export type RouteOptions = {
 
 export type RouteResult = { waypoints: Point[]; goal: Point; blockedByGate: boolean } | null;
 
-const DIRS = [
-  [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1],
-] as const;
+/** Só horizontal/vertical: caminhada em pernas longas, sem zigue-zague diagonal. */
+const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+/** Custo extra por curva (em células): prefere poucas curvas e trechos longos. */
+const TURN_PENALTY_CELLS = 4;
 
 /** Nearest walkable navigation sample to `p` within `tolerance`, or null. */
 export function snapToWalkable(map: MapOverrides | null, p: Point, tolerance: number): Point | null {
@@ -63,7 +64,7 @@ function astar(map: MapOverrides | null, start: Point, goal: Point, gated: ((a: 
   if (ok(start, goal) && Math.hypot(goal.x - start.x, goal.y - start.y) < 3 / cols) return [goal];
   const goalKeys = new Set(near(goal).filter((k) => ok(pt(k), goal)));
   if (goalKeys.size === 0) return null;
-  const h = (p: Point) => Math.hypot(p.x - goal.x, p.y - goal.y);
+  const h = (p: Point) => Math.abs(p.x - goal.x) + Math.abs(p.y - goal.y);
   const g = new Map<number, number>();
   const parent = new Map<number, number>();
   const closed = new Set<number>();
@@ -122,7 +123,13 @@ function astar(map: MapOverrides | null, start: Point, goal: Point, gated: ((a: 
       if (closed.has(nk)) continue;
       const q = pt(nk);
       if (!ok(p, q)) continue;
-      const ng = g.get(k)! + Math.hypot(q.x - p.x, q.y - p.y);
+      const pk = parent.get(k);
+      let turn = 0;
+      if (pk != null && pk !== -1) {
+        const pc = pk % W, pr = Math.floor(pk / W);
+        if (c - pc !== dc || r - pr !== dr) turn = TURN_PENALTY_CELLS / cols;
+      }
+      const ng = g.get(k)! + Math.hypot(q.x - p.x, q.y - p.y) + turn;
       if (ng >= (g.get(nk) ?? Infinity)) continue;
       g.set(nk, ng); parent.set(nk, k); push(ng + h(q), nk);
     }
@@ -130,17 +137,16 @@ function astar(map: MapOverrides | null, start: Point, goal: Point, gated: ((a: 
   return null;
 }
 
-/** Line-of-sight smoothing using the same edge predicate (no corner cutting). */
-function smooth(start: Point, path: Point[], ok: (a: Point, b: Point) => boolean): Point[] {
-  const out: Point[] = [];
-  let anchor = start, i = 0;
-  while (i < path.length) {
-    let j = path.length - 1;
-    while (j > i && !ok(anchor, path[j])) j--;
-    out.push(path[j]);
-    anchor = path[j];
-    i = j + 1;
+/** Keeps only the corners of the axis-aligned path (long straight legs, no diagonal shortcuts). */
+function smooth(_start: Point, path: Point[], _ok?: (a: Point, b: Point) => boolean): Point[] {
+  if (path.length <= 2) return path.slice();
+  const eps = 1e-9;
+  const dir = (a: Point, b: Point) => `${Math.sign(Math.abs(b.x - a.x) > eps ? b.x - a.x : 0)},${Math.sign(Math.abs(b.y - a.y) > eps ? b.y - a.y : 0)}`;
+  const out: Point[] = [path[0]];
+  for (let i = 1; i < path.length - 1; i++) {
+    if (dir(path[i - 1], path[i]) !== dir(path[i], path[i + 1])) out.push(path[i]);
   }
+  out.push(path[path.length - 1]);
   return out;
 }
 

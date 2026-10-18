@@ -112,3 +112,34 @@ describe("touch gestures", () => {
     expect(s.cb.onDoubleTap).not.toHaveBeenCalled();
   });
 });
+
+describe("ajustes de campo (celular)", () => {
+  it("rota anda só na horizontal/vertical, com poucas curvas", () => {
+    const open = gridMap(40, 40, []);
+    const r = findTouchRoute(open, { x: 0.3, y: 0.3 }, { x: 0.7, y: 0.6 })!;
+    let prev = { x: 0.1, y: 0.1 };
+    const pts = r.waypoints.slice(1, -1); // ignora engates de início/fim
+    for (const w of pts) { prev = w; }
+    for (let i = 1; i < pts.length; i++) {
+      const dx = Math.abs(pts[i].x - pts[i - 1].x), dy = Math.abs(pts[i].y - pts[i - 1].y);
+      expect(dx < 1e-9 || dy < 1e-9).toBe(true);
+    }
+    expect(r.waypoints.length).toBeLessThanOrEqual(5);
+    void prev;
+  });
+  it("tocar e segurar (500ms) chama onLongPress e não vira toque nem duplo toque", () => {
+    const timers: (() => void)[] = [];
+    const onTap = vi.fn(), onDoubleTap = vi.fn(), onLongPress = vi.fn();
+    const g = createTouchGestures({
+      getCamera: () => ({ zoom: 1, pan: { x: 0, y: 0 } }), setCamera: vi.fn(), onManualCamera: vi.fn(),
+      onTap, onDoubleTap, onLongPress, minZoom: 1, maxZoom: 4, now: () => 0,
+      setTimer: (fn) => { timers.push(fn); return timers.length; }, clearTimer: () => {},
+    });
+    g.down(1, { x: 10, y: 10 });
+    timers.forEach((f) => f());
+    g.up(1, { x: 10, y: 10 });
+    expect(onLongPress).toHaveBeenCalledWith({ x: 10, y: 10 });
+    expect(onTap).not.toHaveBeenCalled();
+    expect(onDoubleTap).not.toHaveBeenCalled();
+  });
+});

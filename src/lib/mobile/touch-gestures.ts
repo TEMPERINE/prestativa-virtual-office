@@ -9,6 +9,7 @@ export type Camera = { zoom: number; pan: Pt };
 export const TAP_SLOP_PX = 10;
 export const DOUBLE_TAP_MS = 320;
 export const DOUBLE_TAP_DIST_PX = 36;
+export const LONG_PRESS_MS = 500;
 
 /** Screen point (relative to stage) → normalized map point. */
 export function screenToMap(local: Pt, cam: Camera, stage: { w: number; h: number }): Pt {
@@ -28,6 +29,10 @@ export type GestureCallbacks = {
   onManualCamera: () => void; // disables followMe
   onTap: (p: Pt) => void;
   onDoubleTap: (p: Pt) => void;
+  /** finger held still ~500ms: opens zone actions (never moves). */
+  onLongPress?: (p: Pt) => void;
+  setTimer?: (fn: () => void, ms: number) => unknown;
+  clearTimer?: (h: unknown) => void;
   minZoom: number;
   maxZoom: number;
   now?: () => number;
@@ -44,6 +49,11 @@ export function createTouchGestures(cb: GestureCallbacks) {
   let mode: Mode = { kind: "idle" };
   let lastTap: { t: number; p: Pt } | null = null;
   let hadMulti = false;
+  let lpTimer: unknown = null;
+  let longFired = false;
+  const setT = cb.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
+  const clearT = cb.clearTimer ?? ((h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>));
+  const stopLp = () => { if (lpTimer != null) { clearT(lpTimer); lpTimer = null; } };
   const now = cb.now ?? (() => performance.now());
   const two = () => {
     const [a, b] = Array.from(pts.values());
@@ -52,9 +62,19 @@ export function createTouchGestures(cb: GestureCallbacks) {
   return {
     down(id: number, p: Pt) {
       pts.set(id, p);
-      if (pts.size === 1) { hadMulti = false; mode = { kind: "pending", start: p, cam: cb.getCamera() }; }
+      if (pts.size === 1) {
+        hadMulti = false; longFired = false;
+        mode = { kind: "pending", start: p, cam: cb.getCamera() };
+        stopLp();
+        if (cb.onLongPress) lpTimer = setT(() => {
+          lpTimer = null;
+          if (mode.kind !== "pending" || hadMulti || pts.size !== 1) return;
+          longFired = true; lastTap = null;
+          cb.onLongPress!(mode.start);
+        }, LONG_PRESS_MS);
+      }
       else if (pts.size === 2) {
-        hadMulti = true;
+        hadMulti = true; stopLp();
         const { c, d } = two();
         mode = { kind: "pinch", c0: c, d0: d, cam: cb.getCamera() };
         cb.onManualCamera();
@@ -70,6 +90,7 @@ export function createTouchGestures(cb: GestureCallbacks) {
       }
       if (mode.kind === "pending") {
         if (Math.hypot(p.x - mode.start.x, p.y - mode.start.y) < TAP_SLOP_PX) return;
+        stopLp();
         mode = { kind: "pan", start: mode.start, cam: mode.cam };
         cb.onManualCamera();
       }
@@ -87,7 +108,8 @@ export function createTouchGestures(cb: GestureCallbacks) {
         return;
       }
       if (pts.size > 0) return;
-      const wasTap = mode.kind === "pending" && !hadMulti;
+      stopLp();
+      const wasTap = mode.kind === "pending" && !hadMulti && !longFired;
       mode = { kind: "idle" };
       if (!wasTap) { lastTap = null; return; }
       const t = now();
@@ -101,9 +123,9 @@ export function createTouchGestures(cb: GestureCallbacks) {
     },
     cancel(id: number) {
       pts.delete(id);
-      if (pts.size === 0) { mode = { kind: "idle" }; lastTap = null; }
+      if (pts.size === 0) { stopLp(); mode = { kind: "idle" }; lastTap = null; }
     },
-    reset() { pts.clear(); mode = { kind: "idle" }; lastTap = null; },
+    reset() { stopLp(); pts.clear(); mode = { kind: "idle" }; lastTap = null; },
   };
 }
 

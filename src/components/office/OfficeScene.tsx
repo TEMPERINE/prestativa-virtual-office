@@ -1974,7 +1974,7 @@ export function OfficeScene({
   const coarsePointer = mobileViewport.coarse;
   const [zoneSheetId, setZoneSheetId] = useState<string | null>(null);
   // Tap (touch) handler lives in a ref so the gesture controller (created once) sees fresh state.
-  const touchTapRef = useRef<(p: Point) => void>(() => {});
+  const touchTapRef = useRef<(p: Point | null) => void>(() => {});
   const routeRef = useRef<Point[]>([]);
   const routeGoalRef = useRef<Point | null>(null);
   const touchPointersRef = useRef<Set<number>>(new Set());
@@ -2021,9 +2021,11 @@ export function OfficeScene({
         if (tweenRafRef.current != null) { cancelAnimationFrame(tweenRafRef.current); tweenRafRef.current = null; }
         setFollowMe(false);
       },
-      // single tap no chão: nunca move; pode abrir o painel de mesa/área.
-      onTap: (p) => touchTapRef.current(p),
+      // toque simples: só fecha o painel aberto; tocar e segurar abre o painel da mesa/área.
+      onTap: () => touchTapRef.current(null),
+      onLongPress: (p) => touchTapRef.current(p),
       onDoubleTap: (p) => {
+        setZoneSheetId(null);
         if (isMovementInputBlocked(panelRef.current)) return;
         const stage = stageRef.current;
         if (!stage) return;
@@ -2908,8 +2910,9 @@ export function OfficeScene({
   const workspaceZones = useMemo(() => workspaceZonesForMap(loadOverrides()), [mapVersion]);
 
   // Touch single tap: abre o painel da mesa/área sob o dedo (membership real do grid pintado).
-  touchTapRef.current = (p: Point) => {
+  touchTapRef.current = (p: Point | null) => {
     if (zoneSheetId) { setZoneSheetId(null); return; }
+    if (!p) return;
     const stage = stageRef.current;
     if (!stage) return;
     const m = screenToMap(p, { zoom: zoomRef.current, pan: panRef.current }, { w: stage.clientWidth, h: stage.clientHeight });
