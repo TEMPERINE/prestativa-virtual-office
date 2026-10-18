@@ -276,7 +276,11 @@ beforeEach(() => {
   HTMLElement.prototype.setPointerCapture = () => {};
   HTMLElement.prototype.releasePointerCapture = () => {};
 });
-afterEach(() => { coarse = false; });
+afterEach(() => {
+  coarse = false;
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
+});
 
 const DOOR = { id: "p-door", defId: "door", x: 0.3, y: 0.3, w: 0.04, interactive: true, frame: 0 };
 const BELL = { id: "p-bell", defId: "bell-meta", x: 0.8, y: 0.8, w: 0.04, interactive: true };

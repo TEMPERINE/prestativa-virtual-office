@@ -6,7 +6,7 @@ export function mobileCameraPan(map: Size, viewport: Size, origin: Point, zoom: 
   const axis = (content: number, visible: number, offset: number, value: number) => {
     const scaled = content * zoom;
     if (scaled <= visible) return (visible - scaled) / 2 - offset;
-    return Math.min(-offset, Math.max(visible - offset - scaled, value));
+    return Math.min(-offset, Math.max(visible - offset - scaled, value)) + 0;
   };
   return {
     x: axis(map.width, viewport.width, origin.x, requested.x),
