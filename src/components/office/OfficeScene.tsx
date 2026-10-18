@@ -2905,6 +2905,24 @@ export function OfficeScene({
   // Bounds place the card; only painted cells form the interactive hit area.
   const workspaceZones = useMemo(() => workspaceZonesForMap(loadOverrides()), [mapVersion]);
 
+  // Touch single tap: abre o painel da mesa/área sob o dedo (membership real do grid pintado).
+  touchTapRef.current = (p: Point) => {
+    if (zoneSheetId) { setZoneSheetId(null); return; }
+    const stage = stageRef.current;
+    if (!stage) return;
+    const m = screenToMap(p, { zoom: zoomRef.current, pan: panRef.current }, { w: stage.clientWidth, h: stage.clientHeight });
+    const map = loadOverrides();
+    const hit = workspaceZones.find((wz) => pointInMapZone(map, wz.id, m));
+    if (hit) setZoneSheetId(hit.id);
+  };
+
+  // Rotação/resize: preserva zoom e posição; só reclampa o pan (efeito de resize)
+  // e recentra se a câmera estiver seguindo.
+  useEffect(() => {
+    if (!followRef.current) return;
+    centerOn(posRef.current.x, posRef.current.y, zoomRef.current);
+  }, [mobileViewport.orientation, centerOn]);
+
 
 
   // "Presente no espaço" segue modelo de jogo colaborativo:
