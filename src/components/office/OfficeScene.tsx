@@ -1968,7 +1968,11 @@ export function OfficeScene({
 
   // ===== Touch (coarse pointer) controls — never reached by mouse/keyboard =====
   // Rota do double tap: waypoints consumidos pelo mesmo loop de auto-walk.
-  const coarsePointer = useCoarsePointer();
+  const mobileViewport = useMobileViewport();
+  const coarsePointer = mobileViewport.coarse;
+  const [zoneSheetId, setZoneSheetId] = useState<string | null>(null);
+  // Tap (touch) handler lives in a ref so the gesture controller (created once) sees fresh state.
+  const touchTapRef = useRef<(p: Point) => void>(() => {});
   const routeRef = useRef<Point[]>([]);
   const routeGoalRef = useRef<Point | null>(null);
   const touchPointersRef = useRef<Set<number>>(new Set());
@@ -2015,7 +2019,8 @@ export function OfficeScene({
         if (tweenRafRef.current != null) { cancelAnimationFrame(tweenRafRef.current); tweenRafRef.current = null; }
         setFollowMe(false);
       },
-      onTap: () => { /* single tap no chão: não move (elementos tratam o próprio toque) */ },
+      // single tap no chão: nunca move; pode abrir o painel de mesa/área.
+      onTap: (p) => touchTapRef.current(p),
       onDoubleTap: (p) => {
         if (isMovementInputBlocked(panelRef.current)) return;
         const stage = stageRef.current;
@@ -3226,7 +3231,7 @@ export function OfficeScene({
               zoneId={wz.id}
               path={wz.path}
               isHovered={isHovered}
-              onEnter={() => setHoveredZone(wz.id)}
+              onEnter={() => { if (!coarsePointer) setHoveredZone(wz.id); }}
               onLeave={() => setHoveredZone((cur) => (cur === wz.id ? null : cur))}
             >
               {ownerId ? (
