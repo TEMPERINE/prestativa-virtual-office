@@ -1,4 +1,5 @@
 # Office notice UX
+- [ ] Verify iPhone landscape full-map framing and portrait local-avatar follow; preserve desktop and manual gestures, without publishing.
 ## Sprite rendering phase 1
 - [x] Separate exact atlas frame selection from fine alignment; remove texture filters and preserve independent ground shadow.
 - [x] Evaluate device pixel grid without quantizing logical movement or changing assets (DPR 0.9/1/2; no snapping because ancestor zoom and smooth positioning remain fractional).

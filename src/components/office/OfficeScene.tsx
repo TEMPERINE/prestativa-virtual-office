@@ -549,6 +549,9 @@ export function OfficeScene({
     };
   }, [coarsePointer]);
 
+  const clampPanRef = useRef(clampPan);
+  clampPanRef.current = clampPan;
+
   const centerOn = useCallback((nx: number, ny: number, s = zoomRef.current) => {
     const stage = stageRef.current;
     if (!stage) return;
