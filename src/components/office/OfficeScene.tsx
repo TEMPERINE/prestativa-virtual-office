@@ -4420,6 +4420,13 @@ export function OfficeScene({
                   zone={p.zone}
                   online
                   isMe={me?.id === profile.id}
+                  inputMode={
+                    p.user_id === me?.id
+                      ? (coarsePointer ? "touch" : "mouse")
+                      : IS_RTC_V2
+                        ? v2Online?.get(p.user_id)?.inputMode
+                        : peerInputModes[p.user_id]
+                  }
                 />
               ))}
               {offlineList.map((profile) => (
@@ -5114,11 +5121,13 @@ function TeamRow({
   zone,
   online,
   isMe,
+  inputMode,
 }: {
   profile: Profile;
   zone?: string;
   online: boolean;
   isMe?: boolean;
+  inputMode?: "touch" | "mouse";
 }) {
   const zoneLabel = zone ? findZoneById(zone)?.label : undefined;
   return (
@@ -5136,8 +5145,18 @@ function TeamRow({
         />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate">
-          {profile.display_name} {isMe && <span className="text-xs text-muted-foreground">(você)</span>}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-sm font-medium truncate">
+            {profile.display_name} {isMe && <span className="text-xs text-muted-foreground">(você)</span>}
+          </span>
+          {online && (
+            <span
+              title={inputMode === "touch" ? "Acessando pelo celular" : "Acessando pelo computador"}
+              className="shrink-0 text-muted-foreground/70"
+            >
+              {inputMode === "touch" ? <Smartphone className="w-3 h-3" /> : <Monitor className="w-3 h-3" />}
+            </span>
+          )}
         </div>
         {online && zoneLabel && (
           <div className="text-[11px] text-muted-foreground truncate">{zoneLabel}</div>
