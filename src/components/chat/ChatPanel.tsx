@@ -37,7 +37,7 @@ export function ChatPanel({
       aria-modal="false"
       aria-label="Mensagens privadas"
       data-office-chat-panel
-      className="fixed right-3 top-14 bottom-4 z-[300] flex w-[min(760px,calc(100vw-24px))] max-h-[850px] flex-col overflow-hidden rounded-2xl border bg-background text-foreground shadow-2xl"
+      className="fixed right-3 top-14 bottom-4 z-[300] flex w-[min(760px,calc(100vw-24px))] max-h-[850px] flex-col overflow-hidden rounded-2xl border bg-background text-foreground shadow-2xl pointer-coarse:inset-0 pointer-coarse:w-full pointer-coarse:h-[100dvh] pointer-coarse:max-h-none pointer-coarse:rounded-none pointer-coarse:border-0 pointer-coarse:pt-[env(safe-area-inset-top)] pointer-coarse:pb-[env(safe-area-inset-bottom)] pointer-coarse:pl-[env(safe-area-inset-left)] pointer-coarse:pr-[env(safe-area-inset-right)]"
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
