@@ -22,6 +22,11 @@ export interface PresencePayload {
   /** RTC On Demand: "LOBBY" | "PRIVATE:<zoneId>". Sem coordenadas. */
   mediaLocation?: string;
   /**
+   * Modo de entrada do dispositivo ("touch" = celular, "mouse" = desktop).
+   * Apenas informativo (ícone na Equipe); nunca participa de decisões de mídia.
+   */
+  inputMode?: "touch" | "mouse";
+  /**
    * Contador monotônico da sessão: começa em 1 e só incrementa quando um
    * estado publicado relevante muda (hoje: mediaLocation). Sem heartbeat,
    * sem timer, nunca por movimento. Desempata metas com a mesma generation.
@@ -105,6 +110,7 @@ export class OfficePresence {
       workspaceId: opts.self.workspaceId,
       joinedAt: opts.self.joinedAt ?? new Date().toISOString(),
       presenceRevision: 1,
+      ...(opts.self.inputMode ? { inputMode: opts.self.inputMode } : {}),
     };
     this.transport = opts.transport;
     this.cooldownMs = opts.rejoinCooldownMs ?? PRESENCE_REJOIN_COOLDOWN_MS;
@@ -128,6 +134,18 @@ export class OfficePresence {
     const next = loc ?? undefined;
     if (this.disposed || this.payload.mediaLocation === next) return;
     this.payload.mediaLocation = next;
+    this.payload.presenceRevision = (this.payload.presenceRevision ?? 1) + 1;
+    if (this._status === "ONLINE" && this.handle) {
+      const myEpoch = this.epoch;
+      void Promise.resolve(this.handle.track({ ...this.payload })).catch((e) =>
+        this.fail(myEpoch, e instanceof Error ? e.message : String(e)),
+      );
+    }
+  }
+  /** Atualiza o modo de entrada (celular/desktop). Um track() por mudança real. */
+  setInputMode(mode: "touch" | "mouse"): void {
+    if (this.disposed || this.payload.inputMode === mode) return;
+    this.payload.inputMode = mode;
     this.payload.presenceRevision = (this.payload.presenceRevision ?? 1) + 1;
     if (this._status === "ONLINE" && this.handle) {
       const myEpoch = this.epoch;
@@ -222,6 +240,7 @@ export class OfficePresence {
             workspaceId: m.workspaceId,
             joinedAt: m.joinedAt,
             ...(typeof m.mediaLocation === "string" ? { mediaLocation: m.mediaLocation } : {}),
+            ...(m.inputMode === "touch" || m.inputMode === "mouse" ? { inputMode: m.inputMode } : {}),
             ...(typeof m.presenceRevision === "number"
               ? { presenceRevision: m.presenceRevision }
               : {}),
@@ -229,11 +248,11 @@ export class OfficePresence {
         }
       }
     }
-    // Só notifica mudança relevante (entra/sai/mediaLocation/sessão) — evita
-    // loop Presence → demand → track próprio → Presence sem alteração real.
+    // Só notifica mudança relevante (entra/sai/mediaLocation/sessão/inputMode) —
+    // evita loop Presence → demand → track próprio → Presence sem alteração real.
     const sig = (r: Map<string, PresencePayload>) =>
       [...r.values()]
-        .map((p) => `${p.userId}|${p.sessionId}|${p.generation}|${p.mediaLocation ?? ""}`)
+        .map((p) => `${p.userId}|${p.sessionId}|${p.generation}|${p.mediaLocation ?? ""}|${p.inputMode ?? ""}`)
         .sort()
         .join(";");
     const changed = sig(next) !== sig(this.roster);
