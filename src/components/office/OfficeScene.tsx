@@ -3448,8 +3448,10 @@ export function OfficeScene({
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setFollowMe(false);
-                        tweenCenterOn(posRef.current.x, posRef.current.y, zoomRef.current, 400, () => setFollowMe(true));
+                        // follow ligado: o efeito de follow centraliza na hora (sem menu, sem rota).
+                        if (tweenRafRef.current != null) { cancelAnimationFrame(tweenRafRef.current); tweenRafRef.current = null; }
+                        centerOn(posRef.current.x, posRef.current.y, zoomRef.current);
+                        setFollowMe(true);
                       }}
                     />
                   )}
