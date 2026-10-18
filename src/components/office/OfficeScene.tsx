@@ -3672,9 +3672,42 @@ export function OfficeScene({
         {/* /Camera transform layer */}
 
         {/* Map navigation controls — float next to team panel (outside the box, follows collapse) */}
+        {coarsePointer && zoneSheetId && (() => {
+          const wz = workspaceZones.find((z) => z.id === zoneSheetId);
+          if (!wz) return null;
+          const ownerId = claims[wz.id];
+          const owner = ownerId ? profiles[ownerId] : null;
+          const isMine = !!(ownerId && me && ownerId === me.id);
+          const iHaveAClaim = !!(me && Object.values(claims).includes(me.id));
+          const close = () => setZoneSheetId(null);
+          const actions = [] as { id: string; label: string; onSelect: () => void; tone?: "primary" | "danger" }[];
+          if (!ownerId && !iHaveAClaim) actions.push({ id: "claim", label: "Reivindicar espaço", tone: "primary", onSelect: () => { close(); void claimZone(wz.id); } });
+          if (isMine) actions.push({ id: "leave", label: "Deixar mesa", tone: "danger", onSelect: () => { close(); void releaseClaim(); } });
+          if (ownerId && !isMine) actions.push({ id: "note", label: "Deixar recado", onSelect: () => {
+            close();
+            setComposeFor({ zoneId: wz.id, recipientId: ownerId, recipientName: owner?.display_name ?? "colega" });
+            setComposeText("");
+          } });
+          const online = ownerId ? positions[ownerId]?.is_online ?? false : false;
+          return (
+            <MobileZoneSheet
+              title={findZoneById(wz.id)?.label ?? "Espaço"}
+              subtitle={ownerId ? `${isMine ? "Sua mesa" : owner?.display_name ?? "Ocupado"}${!isMine ? (online ? " · online" : " · offline") : ""}` : "Espaço livre"}
+              actions={actions}
+              onClose={close}
+            />
+          );
+        })()}
+
         <div
           className="absolute bottom-6 pointer-coarse:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] flex flex-col gap-2 z-[90] pointer-events-auto transition-all"
-          style={{ right: showTeam ? "calc(19rem + 0.5rem)" : "2rem" }}
+          style={
+            coarsePointer && mobileViewport.orientation === "landscape"
+              // Deitado: coluna no meio da borda direita, fora do notch/barras e do personagem centralizado.
+              ? { right: "calc(0.75rem + env(safe-area-inset-right))", top: "50%", bottom: "auto", transform: "translateY(-50%)" }
+              : { right: showTeam ? "calc(19rem + 0.5rem)" : "2rem" }
+          }
+          data-testid="map-controls"
           data-no-map-gesture
         >
           <button
