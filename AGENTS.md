@@ -1,6 +1,7 @@
 - RTC v2: zona (ponto→zoneId/kind/privado) vem só de src/lib/rtc/canonical-zones.ts, usado pelo cliente V2 e pelo Token V2 — evita divergência cliente/servidor; o callZoneAt legado (src/lib/legacy-call-zone.ts) fica só no v1.
 - AlignedSprite selects exact atlas cells before mirror-aware head translation; filter only its sibling shadow. Preserve fractional movement/aspect ratio; no DPR snapping because Office zoom changes the pixel grid.
 - Profile portraits use SpriteAvatar around AlignedSprite; cropping and offline fading stay separate from scene rendering and presence.
+- Device mode (celular/desktop) na Equipe vem só do Presence: V2 `PresencePayload.inputMode` via `setSelfInputMode`, V1 `input_mode` no presence legado; opcional, informativo, nunca decide mídia — peer sem campo mostra desktop.
 - Props animados (sino) renderizam todos os quadros empilhados e alternam só a visibilidade em PropsLayer; trocar `src` na hora do toque congelava a animação em conexões lentas. Os PNGs do sino são os originais de junho (240×250) — não regerar.
 - Gravação de reunião no RTC V2 é server-side (LiveKit RoomComposite Egress + template `/recording/$meetingId`, estado em `meeting_egress`, webhook `/api/public/livekit-egress`); nunca getDisplayMedia/MediaRecorder no V2 — gravação não pode depender do navegador de quem iniciou.
 - Motor RTC = só VITE_RTC_ENGINE (src/lib/rtc/rtc-engine.ts), igual em preview e produção, padrão v2; sem regra por hostname — rollback = VITE_RTC_ENGINE=v1 + republicar, V1 mantido até limpeza separada.

@@ -109,6 +109,24 @@ describe("OfficePresence", () => {
     expect(p.getRoster().get("a")?.generation).toBe(4);
   });
 
+  it("inputMode: propaga no roster e re-publica só quando muda", () => {
+    const { p, t, h } = setup();
+    h().onSubscribed();
+    // Payload inicial sem inputMode (desktop implícito) — mantém o formato mínimo.
+    expect(t.opened[0].tracks[0]).not.toHaveProperty("inputMode");
+    p.setInputMode("touch");
+    p.setInputMode("touch"); // repetido não re-publica
+    expect(t.opened[0].tracks[1]?.inputMode).toBe("touch");
+    expect(t.trackCount()).toBe(2);
+    h().onPresence("sync", { a: [{ ...meta("a"), inputMode: "touch" }] });
+    expect(p.getRoster().get("a")?.inputMode).toBe("touch");
+    h().onPresence("sync", { a: [{ ...meta("a"), inputMode: "mouse" }] });
+    expect(p.getRoster().get("a")?.inputMode).toBe("mouse");
+    // Metas sem inputMode não sobrescrevem com valor inválido.
+    h().onPresence("sync", { a: [meta("a")] });
+    expect(p.getRoster().get("a")?.inputMode).toBeUndefined();
+  });
+
   it("29/30. cleanup faz untrack best-effort e remove canal", async () => {
     const t = fakeTransport();
     const p = new OfficePresence({ self, transport: t.transport });

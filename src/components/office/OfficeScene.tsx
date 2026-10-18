@@ -80,7 +80,7 @@ function appleEmojiUrl(emoji: string): string | null {
 const REACTION_DURATION_MS = 3000;
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
-import { LogOut, Mic, MicOff, Video, VideoOff, MonitorUp, Users, Pencil, User as UserIcon, MessageCircle, StickyNote, X as XIcon, Plus, Minus, Locate, ChevronLeft, ChevronRight, Footprints, UserPlus, Hand, Circle, Square, Loader2, Smile } from "lucide-react";
+import { LogOut, Mic, MicOff, Video, VideoOff, MonitorUp, Users, Pencil, User as UserIcon, MessageCircle, StickyNote, X as XIcon, Plus, Minus, Locate, ChevronLeft, ChevronRight, Footprints, UserPlus, Hand, Circle, Square, Loader2, Smile, Smartphone, Monitor } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import EmojiPicker, { EmojiStyle, Theme as EmojiTheme } from "emoji-picker-react";
 import { Link } from "@tanstack/react-router";
@@ -387,6 +387,9 @@ export function OfficeScene({
   // game-state source, so idle players never disappear just because a presence
   // heartbeat or browser tab event was missed.
   const [presentPeerIds, setPresentPeerIds] = useState<Set<string>>(() => new Set());
+  // Modo de entrada anunciado por cada peer (V1 presence). V2 vem do payload
+  // do Presence V2 (inputMode); aqui só o fallback legado precisa de estado.
+  const [peerInputModes, setPeerInputModes] = useState<Record<string, "touch" | "mouse">>({});
   // LWW tracker — freshest per-peer ts from BROADCAST/PRESENCE (peer client clock).
   // Used to dedupe duplicate live samples from the same producer.
   // IMPORTANT: do NOT mix with DB updated_at — server clock vs peer client clock
@@ -748,6 +751,12 @@ export function OfficeScene({
 
   // ---- RTC v2: posição própria → runtime (contexto, spatial, movement) ----
   const rtcV2Ready = !!rtc.v2;
+  // Anuncia o modo de entrada (celular/desktop) no Presence V2 — apenas
+  // informativo (ícone na Equipe); nunca influencia decisões de mídia/RTC.
+  useEffect(() => {
+    if (!IS_RTC_V2) return;
+    rtcV2Ref.current?.setSelfInputMode(coarsePointer ? "touch" : "mouse");
+  }, [coarsePointer, rtcV2Ready]);
   useEffect(() => {
     if (!IS_RTC_V2 || !rtcV2Ready || !positionHydratedRef.current) return;
     const v2 = rtcV2Ref.current;
@@ -1366,7 +1375,7 @@ export function OfficeScene({
     // Presence is only an online heartbeat. It must not be allowed to move an
     // existing avatar, because an old/hidden tab can keep heartbeating SPAWN
     // and pull a stopped colleague back to the origin.
-    type PresenceState = { user_id: string; x: number; y: number; zone: string; facing?: Facing; ts: number };
+    type PresenceState = { user_id: string; x: number; y: number; zone: string; facing?: Facing; ts: number; input_mode?: "touch" | "mouse" };
     const presenceCh = supabase.channel(`${POSITION_PRESENCE_CHANNEL}:${wsSuffix}`, {
       config: { presence: { key: meIdRef.current ?? `anon:${realtimeChannelSuffix}` } },
     });
@@ -1379,6 +1388,10 @@ export function OfficeScene({
         const prev = presenceLastTs.get(s.user_id) ?? 0;
         if (s.ts <= prev) continue;
         presenceLastTs.set(s.user_id, s.ts);
+        if (s.input_mode)
+          setPeerInputModes((prevModes) =>
+            prevModes[s.user_id] === s.input_mode ? prevModes : { ...prevModes, [s.user_id]: s.input_mode! },
+          );
         maybeStartRemoteTeleportFromCurrent(s.user_id, { x: s.x, y: s.y }, s.ts);
         setPositions((p) => {
           const cur = p[s.user_id];
@@ -1491,6 +1504,7 @@ export function OfficeScene({
           await presenceCh.track({
             user_id: uid, x: cur.x, y: cur.y,
             zone: callZoneAt(cur), facing: facingRef.current, ts: Date.now(),
+            input_mode: isCoarsePointer() ? "touch" : "mouse",
           });
         } catch { /* noop */ }
       });
@@ -1506,6 +1520,7 @@ export function OfficeScene({
       void presenceCh.track({
         user_id: uid, x: cur.x, y: cur.y,
         zone: callZoneAt(cur), facing: facingRef.current, ts: Date.now(),
+        input_mode: isCoarsePointer() ? "touch" : "mouse",
       }).catch(() => { /* noop */ });
     }, 1000);
 
@@ -4405,6 +4420,13 @@ export function OfficeScene({
                   zone={p.zone}
                   online
                   isMe={me?.id === profile.id}
+                  inputMode={
+                    p.user_id === me?.id
+                      ? (coarsePointer ? "touch" : "mouse")
+                      : IS_RTC_V2
+                        ? v2Online?.get(p.user_id)?.inputMode
+                        : peerInputModes[p.user_id]
+                  }
                 />
               ))}
               {offlineList.map((profile) => (
@@ -5099,11 +5121,13 @@ function TeamRow({
   zone,
   online,
   isMe,
+  inputMode,
 }: {
   profile: Profile;
   zone?: string;
   online: boolean;
   isMe?: boolean;
+  inputMode?: "touch" | "mouse";
 }) {
   const zoneLabel = zone ? findZoneById(zone)?.label : undefined;
   return (
@@ -5121,8 +5145,18 @@ function TeamRow({
         />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate">
-          {profile.display_name} {isMe && <span className="text-xs text-muted-foreground">(você)</span>}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-sm font-medium truncate">
+            {profile.display_name} {isMe && <span className="text-xs text-muted-foreground">(você)</span>}
+          </span>
+          {online && (
+            <span
+              title={inputMode === "touch" ? "Acessando pelo celular" : "Acessando pelo computador"}
+              className="shrink-0 text-muted-foreground/70"
+            >
+              {inputMode === "touch" ? <Smartphone className="w-3 h-3" /> : <Monitor className="w-3 h-3" />}
+            </span>
+          )}
         </div>
         {online && zoneLabel && (
           <div className="text-[11px] text-muted-foreground truncate">{zoneLabel}</div>
