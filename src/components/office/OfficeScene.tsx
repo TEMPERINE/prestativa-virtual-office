@@ -29,6 +29,9 @@ import { AlignedSprite } from "@/components/sprites/AlignedSprite";
 import { PropsLayer } from "./PropsLayer";
 import { OfficeToastLayer, OfficeNotice, OfficeAreaNotice } from "./OfficeToastLayer";
 import { isMoveGated } from "@/lib/prop-gates";
+import { findTouchRoute } from "@/lib/mobile/touch-route";
+import { createTouchGestures, screenToMap, GESTURE_EXEMPT } from "@/lib/mobile/touch-gestures";
+import { isCoarsePointer } from "@/lib/mobile/input-mode";
 
 const WALK_FRAME_MS = 110;
 
@@ -1963,6 +1966,87 @@ export function OfficeScene({
   // Auto-walk target: when set, the avatar walks toward this point each tick.
   const autoWalkRef = useRef<{ x: number; y: number } | null>(null);
 
+  // ===== Touch (coarse pointer) controls — never reached by mouse/keyboard =====
+  // Rota do double tap: waypoints consumidos pelo mesmo loop de auto-walk.
+  const routeRef = useRef<Point[]>([]);
+  const routeGoalRef = useRef<Point | null>(null);
+  const touchPointersRef = useRef<Set<number>>(new Set());
+  const [tapMarker, setTapMarker] = useState<{ x: number; y: number; ok: boolean; id: number } | null>(null);
+  const markerTimerRef = useRef<number | null>(null);
+  const showTapMarker = useCallback((p: Point, ok: boolean) => {
+    if (markerTimerRef.current) window.clearTimeout(markerTimerRef.current);
+    setTapMarker({ x: p.x, y: p.y, ok, id: Date.now() });
+    markerTimerRef.current = window.setTimeout(() => setTapMarker(null), 700);
+  }, []);
+  useEffect(() => () => { if (markerTimerRef.current) window.clearTimeout(markerTimerRef.current); }, []);
+  const stopTouchRoute = useCallback(() => {
+    if (!routeGoalRef.current && routeRef.current.length === 0) return;
+    routeRef.current = [];
+    routeGoalRef.current = null;
+    autoWalkRef.current = null;
+  }, []);
+  const planTouchRoute = useCallback((target: Point) => {
+    const res = findTouchRoute(loadOverrides(), posRef.current, target, {
+      isGated: (a, b) => isMoveGated(callZoneAt(a), callZoneAt(b)),
+    });
+    if (!res) return false;
+    routeRef.current = res.waypoints.slice();
+    routeGoalRef.current = res.goal;
+    autoWalkRef.current = null; // nova rota cancela a anterior
+    return true;
+  }, []);
+  const stageLocal = (e: { clientX: number; clientY: number }) => {
+    const rect = stageRef.current?.getBoundingClientRect();
+    return { x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0) };
+  };
+  const gesturesRef = useRef<ReturnType<typeof createTouchGestures> | null>(null);
+  if (!gesturesRef.current) {
+    gesturesRef.current = createTouchGestures({
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
+      getCamera: () => ({ zoom: zoomRef.current, pan: { ...panRef.current } }),
+      setCamera: (cam) => {
+        zoomRef.current = cam.zoom;
+        setZoom((z) => (z === cam.zoom ? z : cam.zoom));
+        setPan(clampPan(cam.zoom, cam.pan));
+      },
+      onManualCamera: () => {
+        if (tweenRafRef.current != null) { cancelAnimationFrame(tweenRafRef.current); tweenRafRef.current = null; }
+        setFollowMe(false);
+      },
+      onTap: () => { /* single tap no chão: não move (elementos tratam o próprio toque) */ },
+      onDoubleTap: (p) => {
+        if (isMovementInputBlocked(panelRef.current)) return;
+        const stage = stageRef.current;
+        if (!stage) return;
+        const m = screenToMap(p, { zoom: zoomRef.current, pan: panRef.current }, { w: stage.clientWidth, h: stage.clientHeight });
+        if (followingUidRef.current) stopFollowing(true);
+        const ok = planTouchRoute(m);
+        showTapMarker(ok ? (routeGoalRef.current ?? m) : m, ok);
+        if (ok && !followRef.current) setFollowMe(true);
+      },
+    });
+  }
+  const gestures = gesturesRef.current;
+  // Background/offline: pausa a rota; voltar exige novo comando (não repete toques antigos).
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === "hidden") { stopTouchRoute(); gesturesRef.current?.reset(); touchPointersRef.current.clear(); } };
+    const onOffline = () => stopTouchRoute();
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("offline", onOffline);
+    return () => { document.removeEventListener("visibilitychange", onHide); window.removeEventListener("offline", onOffline); };
+  }, [stopTouchRoute]);
+  // Mapa mudou durante o percurso: recalcula até o mesmo destino (ou para).
+  useEffect(() => {
+    const onMap = () => {
+      const goal = routeGoalRef.current;
+      if (!goal) return;
+      if (!planTouchRoute(goal)) stopTouchRoute();
+    };
+    window.addEventListener("map-overrides-changed", onMap);
+    return () => window.removeEventListener("map-overrides-changed", onMap);
+  }, [planTouchRoute, stopTouchRoute]);
+
   // Magic teleport effect: avatar fades out at current spot, then fades in at seat.
   const [teleport, setTeleport] = useState<
     | { from: Point; to: Point; phase: "out" | "in"; id: number }
@@ -2467,6 +2551,7 @@ export function OfficeScene({
       if (e.repeat) return;
       // Manual movement cancels auto-walk and any active follow
       autoWalkRef.current = null;
+      routeRef.current = [];
       if (followingUidRef.current) stopFollowing(true);
       keysDown.current.add(dir);
       lastDir.current = dir;
@@ -2553,6 +2638,12 @@ export function OfficeScene({
         }
       }
 
+      // Touch route (double tap): feed the next waypoint to the existing auto-walk.
+      if (followingUidRef.current) routeRef.current = [];
+      else if (!dir && !autoWalkRef.current && routeRef.current.length) {
+        autoWalkRef.current = routeRef.current.shift()!;
+      }
+
       // Auto-walk: if no manual key, compute a direction toward the target.
       if (!dir && autoWalkRef.current) {
         const cur = posRef.current;
@@ -2582,8 +2673,9 @@ export function OfficeScene({
             if (tryMove(secondary, stepFactor)) {
               dir = secondary;
             } else {
-              // Stuck — abort auto-walk
+              // Stuck — abort auto-walk (and any touch route: e.g. closed door)
               autoWalkRef.current = null;
+              routeRef.current = [];
             }
           }
         }
@@ -2969,7 +3061,10 @@ export function OfficeScene({
       <div
         ref={stageRef}
         className="relative h-full shrink-0 overflow-hidden select-none"
-        style={{ aspectRatio: "1536 / 1024" }}
+        data-testid="office-stage"
+        // touch-action só no palco: navegador não faz pinch/scroll nativo aqui;
+        // não tem efeito sobre mouse e não afeta o resto do site.
+        style={{ aspectRatio: "1536 / 1024", touchAction: "none" }}
 
 
 
@@ -2992,6 +3087,14 @@ export function OfficeScene({
         }}
         onPointerDown={(e) => {
           if (placing) return;
+          if (e.pointerType === "touch") {
+            // Touch-only path: gestures never reach the mouse drag below.
+            const tgt = e.target as HTMLElement;
+            if (tgt.closest(GESTURE_EXEMPT)) return;
+            touchPointersRef.current.add(e.pointerId);
+            gestures.down(e.pointerId, stageLocal(e));
+            return;
+          }
           if (e.button !== 0) return;
           // Don't start a drag on interactive children (buttons, etc.)
           const tgt = e.target as HTMLElement;
@@ -3006,6 +3109,10 @@ export function OfficeScene({
           };
         }}
         onPointerMove={(e) => {
+          if (e.pointerType === "touch") {
+            if (touchPointersRef.current.has(e.pointerId)) gestures.move(e.pointerId, stageLocal(e));
+            return;
+          }
           const d = dragRef.current;
           if (!d) return;
           const dx = e.clientX - d.startX;
@@ -3016,10 +3123,18 @@ export function OfficeScene({
           setPan(clampPan(zoomRef.current, { x: d.panX + dx, y: d.panY + dy }));
         }}
         onPointerUp={(e) => {
+          if (e.pointerType === "touch") {
+            if (touchPointersRef.current.delete(e.pointerId)) gestures.up(e.pointerId, stageLocal(e));
+            return;
+          }
           const d = dragRef.current;
           dragRef.current = null;
           wasDragRef.current = !!d?.moved;
           try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* pointer may already be released */ }
+        }}
+        onPointerCancel={(e) => {
+          if (e.pointerType !== "touch") return;
+          if (touchPointersRef.current.delete(e.pointerId)) gestures.cancel(e.pointerId);
         }}
         onClickCapture={(e) => {
           if (placing) {
@@ -3062,6 +3177,24 @@ export function OfficeScene({
 
         {/* Elementos sobrepostos (mobília, portas etc.) */}
         <PropsLayer selfX={pos.x} selfY={pos.y} focusedRect={focusedZone?.rect ?? null} />
+
+        {tapMarker && (
+          <div
+            key={tapMarker.id}
+            data-testid="touch-route-marker"
+            data-ok={tapMarker.ok ? "true" : "false"}
+            className="absolute pointer-events-none -translate-x-1/2 -translate-y-1/2 rounded-full border-2 animate-ping motion-reduce:animate-none"
+            style={{
+              left: `${tapMarker.x * 100}%`,
+              top: `${tapMarker.y * 100}%`,
+              width: 22,
+              height: 12,
+              borderColor: tapMarker.ok ? "var(--primary)" : "var(--destructive)",
+              animationIterationCount: 1,
+              zIndex: 1,
+            }}
+          />
+        )}
 
 
 
@@ -3501,8 +3634,9 @@ export function OfficeScene({
 
         {/* Map navigation controls — float next to team panel (outside the box, follows collapse) */}
         <div
-          className="absolute bottom-6 flex flex-col gap-2 z-[90] pointer-events-auto transition-all"
+          className="absolute bottom-6 pointer-coarse:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] flex flex-col gap-2 z-[90] pointer-events-auto transition-all"
           style={{ right: showTeam ? "calc(19rem + 0.5rem)" : "2rem" }}
+          data-no-map-gesture
         >
           <button
             type="button"
@@ -3518,7 +3652,8 @@ export function OfficeScene({
               setZoom(ns);
               setPan(clampPan(ns, { x: cx - (cx - p.x) * (ns / s), y: cy - (cy - p.y) * (ns / s) }));
             }}
-            className="w-9 h-9 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center shadow-soft backdrop-blur-sm"
+            aria-label="Aproximar"
+            className="w-9 h-9 pointer-coarse:w-11 pointer-coarse:h-11 pointer-coarse:active:scale-90 transition-transform rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center shadow-soft backdrop-blur-sm"
           >
             <Plus className="w-4 h-4" />
           </button>
@@ -3536,13 +3671,16 @@ export function OfficeScene({
               setZoom(ns);
               setPan(clampPan(ns, { x: cx - (cx - p.x) * (ns / s), y: cy - (cy - p.y) * (ns / s) }));
             }}
-            className="w-9 h-9 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center shadow-soft backdrop-blur-sm"
+            aria-label="Afastar"
+            className="w-9 h-9 pointer-coarse:w-11 pointer-coarse:h-11 pointer-coarse:active:scale-90 transition-transform rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center shadow-soft backdrop-blur-sm"
           >
             <Minus className="w-4 h-4" />
           </button>
           <button
             type="button"
             title={followMe ? "Câmera seguindo você" : "Centralizar em mim"}
+            aria-label={followMe ? "Câmera seguindo você" : "Centralizar em mim"}
+            data-testid="center-on-me"
             onClick={() => {
               setFollowMe(false);
               const targetZoom = Math.max(zoomRef.current, 2.0);
@@ -3550,7 +3688,7 @@ export function OfficeScene({
                 setFollowMe(true);
               });
             }}
-            className={`w-9 h-9 rounded-full flex items-center justify-center shadow-soft backdrop-blur-sm ${
+            className={`w-9 h-9 pointer-coarse:w-11 pointer-coarse:h-11 pointer-coarse:active:scale-90 transition-transform rounded-full flex items-center justify-center shadow-soft backdrop-blur-sm ${
               followMe ? "bg-primary text-primary-foreground" : "bg-black/60 hover:bg-black/80 text-white"
             }`}
           >
