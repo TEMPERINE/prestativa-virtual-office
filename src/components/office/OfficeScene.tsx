@@ -988,7 +988,7 @@ export function OfficeScene({
       const now = performance.now();
       if (now - lastGatedToastRef.current > 1500) {
         lastGatedToastRef.current = now;
-        toast("Porta fechada", { description: "Aperte X para abrir." });
+        toast("Porta fechada", { description: isCoarsePointer() ? "Toque na porta para abrir." : "Aperte X para abrir." });
       }
       if (IS_RTC_V2) rtcV2Ref.current?.reportMotion(cur.x, cur.y, 0, 0);
       return false;
