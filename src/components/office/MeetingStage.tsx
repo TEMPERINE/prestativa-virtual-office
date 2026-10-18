@@ -1,4 +1,3 @@
-import { isCoarsePointer } from "@/lib/mobile/input-mode";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -179,13 +178,6 @@ export function MeetingStage({ mode, participants, screens, raisedHands, onStopL
   return typeof document !== "undefined" ? createPortal(overlay, fsHost ?? document.body) : overlay;
 }
 
-/** Celulares sem getDisplayMedia (iOS/Android) não mostram "Compartilhar tela". */
-function canDisplayMedia() {
-  // Só oculta em toque: desktop mantém o comportamento atual.
-  if (!isCoarsePointer() || typeof navigator === "undefined") return true;
-  return typeof navigator.mediaDevices?.getDisplayMedia === "function";
-}
-
 export function MeetingControlsBar({ c }: { c: StageControls }) {
   const [level, setLevel] = useState(0);
   const btn = (on: boolean, offDanger: boolean) =>
@@ -200,7 +192,7 @@ export function MeetingControlsBar({ c }: { c: StageControls }) {
       data-testid="meeting-controls"
       role="toolbar"
       aria-label="Controles da reunião"
-      className="absolute bottom-4 pointer-coarse:bottom-[calc(1rem+env(safe-area-inset-bottom))] max-w-[calc(100vw-1rem)] overflow-x-auto left-1/2 -translate-x-1/2 flex items-center gap-2 sm:gap-3 px-3 py-2 rounded-full bg-card/90 border border-border shadow-2xl backdrop-blur-md pointer-events-auto"
+      className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 sm:gap-3 px-3 py-2 rounded-full bg-card/90 border border-border shadow-2xl backdrop-blur-md pointer-events-auto"
       style={{ zIndex: 2 }}
     >
       <div className="flex items-center" data-testid="mic-group">
@@ -238,7 +230,7 @@ export function MeetingControlsBar({ c }: { c: StageControls }) {
           />
         )}
       </div>
-      {c.canShare && (c.screenOn || canDisplayMedia()) && (
+      {c.canShare && (
         <button type="button" aria-pressed={c.screenOn} aria-label={c.screenOn ? "Parar compartilhamento" : "Compartilhar tela"} title={c.screenOn ? "Parar compartilhamento" : "Compartilhar tela"} onClick={c.onToggleScreen} className={btn(c.screenOn, false)}>
           <MonitorUp className="w-5 h-5" />
         </button>
