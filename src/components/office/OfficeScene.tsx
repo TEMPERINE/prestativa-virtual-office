@@ -755,7 +755,7 @@ export function OfficeScene({
   // informativo (ícone na Equipe); nunca influencia decisões de mídia/RTC.
   useEffect(() => {
     if (!IS_RTC_V2) return;
-    rtcV2Ref.current?.presence.setInputMode(coarsePointer ? "touch" : "mouse");
+    rtcV2Ref.current?.setSelfInputMode(coarsePointer ? "touch" : "mouse");
   }, [coarsePointer, rtcV2Ready]);
   useEffect(() => {
     if (!IS_RTC_V2 || !rtcV2Ready || !positionHydratedRef.current) return;

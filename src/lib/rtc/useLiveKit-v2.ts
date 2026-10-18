@@ -44,6 +44,8 @@ export interface RtcV2Controls {
   avatars: ReadonlyMap<string, RemoteAvatarState>;
   online: ReadonlyMap<string, PresencePayload>;
   reportMotion: (x: number, y: number, vx: number, vy: number) => void;
+  /** Anuncia o modo de entrada (touch = celular, mouse = desktop) no Presence V2. */
+  setSelfInputMode: (mode: "touch" | "mouse") => void;
   setSelfPosition: (x: number, y: number) => void;
   announceJump: (x: number, y: number) => void;
   retry: () => void;
@@ -384,6 +386,7 @@ export function useLiveKitV2(
       avatars: snap.avatars,
       online: snap.online,
       reportMotion: (x, y, vx, vy) => runtime.reportMotion(x, y, vx, vy),
+      setSelfInputMode: (mode) => runtime.presence.setInputMode(mode),
       setSelfPosition: (x, y) => runtime.setSelfPosition(x, y),
       announceJump: (x, y) => runtime.announceJump(x, y),
       retry: () => runtime.retry(),
