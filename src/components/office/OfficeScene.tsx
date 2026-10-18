@@ -33,6 +33,7 @@ import { findTouchRoute } from "@/lib/mobile/touch-route";
 import { createTouchGestures, screenToMap, GESTURE_EXEMPT } from "@/lib/mobile/touch-gestures";
 import { isCoarsePointer } from "@/lib/mobile/input-mode";
 import { useMobileViewport } from "@/lib/mobile/viewport";
+import { mobileCameraCenter, mobileCameraPan } from "@/lib/mobile/camera";
 import { MobileZoneSheet } from "./MobileZoneSheet";
 
 const WALK_FRAME_MS = 110;
@@ -506,6 +507,8 @@ export function OfficeScene({
   }, []);
 
   // ===== Camera (zoom + pan + follow) =====
+  const mobileViewport = useMobileViewport();
+  const coarsePointer = mobileViewport.coarse;
   const MIN_ZOOM = 1;
   const MAX_ZOOM = 4; // ~roughly one workspace fills the screen
   const [zoom, setZoom] = useState(1);
@@ -530,21 +533,41 @@ export function OfficeScene({
     const stage = stageRef.current;
     if (!stage) return p;
     const W = stage.clientWidth, H = stage.clientHeight;
+    const scene = sceneRef.current;
+    if (coarsePointer && scene) {
+      const bounds = stage.getBoundingClientRect(), visible = scene.getBoundingClientRect();
+      return mobileCameraPan(
+        { width: W, height: H },
+        { width: scene.clientWidth || W, height: scene.clientHeight || H },
+        { x: bounds.left - visible.left, y: bounds.top - visible.top }, s, p,
+      );
+    }
     const minX = W - W * s, minY = H - H * s;
     return {
       x: Math.min(0, Math.max(minX, p.x)),
       y: Math.min(0, Math.max(minY, p.y)),
     };
-  }, []);
+  }, [coarsePointer]);
 
   const centerOn = useCallback((nx: number, ny: number, s = zoomRef.current) => {
     const stage = stageRef.current;
     if (!stage) return;
     const W = stage.clientWidth, H = stage.clientHeight;
+    const scene = sceneRef.current;
+    if (coarsePointer && scene) {
+      const bounds = stage.getBoundingClientRect(), visible = scene.getBoundingClientRect();
+      const next = mobileCameraCenter(
+        { width: W, height: H },
+        { width: scene.clientWidth || W, height: scene.clientHeight || H },
+        { x: bounds.left - visible.left, y: bounds.top - visible.top }, s, { x: nx, y: ny },
+      );
+      setPan((prev) => prev.x === next.x && prev.y === next.y ? prev : next);
+      return;
+    }
     const tx = W / 2 - nx * W * s;
     const ty = H / 2 - ny * H * s;
     setPan(clampPan(s, { x: tx, y: ty }));
-  }, [clampPan]);
+  }, [clampPan, coarsePointer]);
 
   // Smoothly tween zoom + pan to center on a normalized point.
   const tweenRafRef = useRef<number | null>(null);
@@ -1970,8 +1993,6 @@ export function OfficeScene({
 
   // ===== Touch (coarse pointer) controls — never reached by mouse/keyboard =====
   // Rota do double tap: waypoints consumidos pelo mesmo loop de auto-walk.
-  const mobileViewport = useMobileViewport();
-  const coarsePointer = mobileViewport.coarse;
   const [zoneSheetId, setZoneSheetId] = useState<string | null>(null);
   // Tap (touch) handler lives in a ref so the gesture controller (created once) sees fresh state.
   const touchTapRef = useRef<(p: Point | null) => void>(() => {});
@@ -2015,7 +2036,7 @@ export function OfficeScene({
       setCamera: (cam) => {
         zoomRef.current = cam.zoom;
         setZoom((z) => (z === cam.zoom ? z : cam.zoom));
-        setPan(clampPan(cam.zoom, cam.pan));
+        setPan(clampPanRef.current(cam.zoom, cam.pan));
       },
       onManualCamera: () => {
         if (tweenRafRef.current != null) { cancelAnimationFrame(tweenRafRef.current); tweenRafRef.current = null; }
@@ -2921,12 +2942,31 @@ export function OfficeScene({
     if (hit) setZoneSheetId(hit.id);
   };
 
-  // Rotação/resize: preserva zoom e posição; só reclampa o pan (efeito de resize)
-  // e recentra se a câmera estiver seguindo.
+  // On touch, rotation starts a fresh view: whole map in landscape, avatar in portrait.
   useEffect(() => {
-    if (!followRef.current) return;
-    centerOn(posRef.current.x, posRef.current.y, zoomRef.current);
-  }, [mobileViewport.orientation, centerOn]);
+    if (!coarsePointer) return;
+    zoomRef.current = MIN_ZOOM;
+    followRef.current = true;
+    setZoom(MIN_ZOOM);
+    setFollowMe(true);
+    centerOn(posRef.current.x, posRef.current.y, MIN_ZOOM);
+  }, [coarsePointer, mobileViewport.orientation, centerOn]);
+
+  // The stage can resize AFTER orientationchange (Safari chrome / dynamic viewport).
+  // Observe actual layout, not only window events, without remounting the Office.
+  useEffect(() => {
+    const scene = sceneRef.current, stage = stageRef.current;
+    if (!coarsePointer || !scene || !stage) return;
+    const update = () => {
+      if (followRef.current) centerOn(posRef.current.x, posRef.current.y, zoomRef.current);
+      else setPan((p) => clampPan(zoomRef.current, p));
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(scene);
+    observer.observe(stage);
+    update();
+    return () => observer.disconnect();
+  }, [coarsePointer, centerOn, clampPan]);
 
 
 
@@ -3067,6 +3107,7 @@ export function OfficeScene({
       ref={sceneRef}
       tabIndex={0}
       className="relative w-screen h-screen overflow-hidden bg-black outline-none flex items-stretch"
+      style={coarsePointer ? { height: "100dvh" } : undefined}
       onMouseDown={(e) => {
         // Eventos de portais (menus/popovers) borbulham pela árvore React até
         // aqui; roubar o foco fecha o popover antes do clique executar.
