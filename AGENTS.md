@@ -19,3 +19,4 @@
 - Chat menus and reaction portals share element refs for outside-pointer ownership in both directions, so capture cannot unmount items before click selection.
 <!-- LOVABLE:END -->
 - Mobile Office controls (src/lib/mobile/*) activate only for pointerType "touch" / (pointer: coarse), never by width; viewport/orientation/keyboard/safe-area come only from useMobileViewport (viewport.ts). Touch gestures feed existing camera state and auto-walk waypoints (A* via canMoveOnMap + isMoveGated); touch prop taps call PropsLayer requestInteract — desktop untouched, one movement/interaction path.
+- Touch camera geometry uses the scene's visible bounds and map-local coordinates via mobile/camera.ts; observe actual layout resizing so an oversized portrait stage cannot center outside the visible window. Desktop geometry remains unchanged.

@@ -249,6 +249,7 @@ const saved = () => JSON.parse(localStorage.getItem(`office:last-position:v1:${i
 
 // ---- input environment -------------------------------------------------
 let coarse = false;
+let viewportWidth = 1500, viewportHeight = 1000;
 class FakePointerEvent extends MouseEvent {
   pointerId: number; pointerType: string; isPrimary: boolean;
   constructor(type: string, init: PointerEventInit = {}) {
@@ -259,18 +260,27 @@ class FakePointerEvent extends MouseEvent {
   }
 }
 beforeEach(() => {
+  viewportWidth = 1500; viewportHeight = 1000;
   vi.stubGlobal("PointerEvent", FakePointerEvent);
   window.matchMedia = ((q: string) => ({
     matches: q.includes("coarse") ? coarse : false,
     media: q, onchange: null,
     addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false,
   })) as unknown as typeof window.matchMedia;
-  Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get() { return this.dataset?.testid === "office-stage" ? 1500 : 0; } });
-  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get() { return this.dataset?.testid === "office-stage" ? 1000 : 0; } });
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get() { return this.dataset?.testid === "office-stage" ? viewportHeight * 1.5 : this.tabIndex === 0 ? viewportWidth : 0; } });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get() { return this.dataset?.testid === "office-stage" || this.tabIndex === 0 ? viewportHeight : 0; } });
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const left = this.dataset?.testid === "office-stage" ? Math.max(0, (viewportWidth - viewportHeight * 1.5) / 2) : 0;
+    return { x: left, y: 0, left, top: 0, width: this.clientWidth, height: this.clientHeight, right: left + this.clientWidth, bottom: this.clientHeight, toJSON() {} };
+  });
   HTMLElement.prototype.setPointerCapture = () => {};
   HTMLElement.prototype.releasePointerCapture = () => {};
 });
-afterEach(() => { coarse = false; });
+afterEach(() => {
+  coarse = false;
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
+});
 
 const DOOR = { id: "p-door", defId: "door", x: 0.3, y: 0.3, w: 0.04, interactive: true, frame: 0 };
 const BELL = { id: "p-bell", defId: "bell-meta", x: 0.8, y: 0.8, w: 0.04, interactive: true };
@@ -347,19 +357,45 @@ it("mobile: painel de mesa e controles não disparam gestos do mapa", async () =
   expect(screen.queryByTestId("touch-route-marker")).toBeNull();
   done();
 });
-it("mobile: rotação preserva zoom e não remonta o Office nem canais", async () => {
+it("mobile: rotação para horizontal mostra mapa inteiro sem remontar Office nem canais", async () => {
   coarse = true;
+  viewportWidth = 390; viewportHeight = 844;
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 });
   const done = await ready();
   ptr(stage(), "pointerdown", 100, 100, "touch", 1); ptr(stage(), "pointerdown", 200, 100, "touch", 2);
   ptr(stage(), "pointermove", 250, 100, "touch", 2);
   ptr(stage(), "pointerup", 100, 100, "touch", 1); ptr(stage(), "pointerup", 250, 100, "touch", 2);
-  const zoom = zoomLayer().style.transform;
   const node = stage(); const count = io.channels.length;
+  viewportWidth = 844; viewportHeight = 390;
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 844 });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 390 });
   await act(async () => { window.dispatchEvent(new Event("orientationchange")); window.dispatchEvent(new Event("resize")); await new Promise((r) => setTimeout(r, 30)); });
   expect(stage()).toBe(node);
-  expect(zoomLayer().style.transform).toBe(zoom);
+  expect(zoomLayer().style.transform).toBe("scale(1)");
+  expect(panLayer().style.transform).toBe("translate3d(0px, 0px, 0)");
   expect(io.channels).toHaveLength(count);
   expect(io.channels.some((c) => c.removed)).toBe(false);
+  done();
+});
+
+it("mobile: portrait starts and walks centered in the visible screen, not the oversized stage", async () => {
+  coarse = true;
+  viewportWidth = 390; viewportHeight = 844;
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 });
+  const done = await ready();
+  const centered = () => {
+    const position = saved();
+    const transform = panLayer().style.transform;
+    const x = Number(transform.match(/translate3d\(([-\d.]+)px/)?.[1]);
+    expect(x + position.x * 1266).toBeCloseTo(195, 0);
+  };
+  await waitFor(centered);
+  fireEvent.keyDown(window, { key: "ArrowRight" });
+  await act(async () => { await new Promise((r) => setTimeout(r, 120)); });
+  fireEvent.keyUp(window, { key: "ArrowRight" });
+  await waitFor(centered);
   done();
 });
 
