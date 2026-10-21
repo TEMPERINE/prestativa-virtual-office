@@ -106,6 +106,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { ProfileMenu } from "@/components/profile/ProfileMenu";
+import { OfficeCapabilitiesContext, officeCapabilitiesFor, type OfficeAudience } from "@/lib/visitors/capabilities";
+import { loadActiveVisitorProfiles } from "@/lib/visitors/profiles";
+import { VisitorsButton } from "@/components/visitors/VisitorsPanel";
 import { SpriteAvatar as ProfileSpriteAvatar } from "@/components/profile/SpriteAvatar";
 import { SavedNotesDialog } from "@/components/profile/SavedNotesDialog";
 import { EditCharacterModal } from "@/components/profile/EditCharacterModal";
@@ -142,6 +145,8 @@ type Profile = {
   city?: string | null;
   state?: string | null;
   country_code?: string | null;
+  /** Visitante temporário (workspace_visitors), nunca membro. */
+  is_visitor?: boolean;
 };
 
 type RemotePos = {
@@ -339,7 +344,11 @@ export function OfficeScene({
   rtcSession = null,
   panel = null,
   onPanelChange,
+  audience = "member",
+  isWorkspaceAdmin = false,
 }: {
+  audience?: OfficeAudience;
+  isWorkspaceAdmin?: boolean;
   onHydrated?: () => void;
   rtcSession?: RtcV2HookConfig | null;
   panel?: OfficePanel | null;
@@ -352,7 +361,14 @@ export function OfficeScene({
   panelRef.current = panel;
   // Capacidades por nível do espaço atual — controlam botões de gravar,
   // teleporte e troca de personagem.
-  const { caps: tierCaps } = useWorkspaceTier(getCurrentWorkspaceId());
+  const { caps: rawTierCaps } = useWorkspaceTier(getCurrentWorkspaceId());
+  const officeCaps = useMemo(() => officeCapabilitiesFor(audience, { isWorkspaceAdmin }), [audience, isWorkspaceAdmin]);
+  const officeCapsRef = useRef(officeCaps);
+  officeCapsRef.current = officeCaps;
+  const isVisitor = audience === "visitor";
+  const tierCaps = useMemo(() => isVisitor
+    ? { ...rawTierCaps, canTeleport: false, canChangeSprite: false, canRecordMeetings: false }
+    : rawTierCaps, [isVisitor, rawTierCaps]);
   const canRecordMeeting = useCanRecordMeeting(getCurrentWorkspaceId());
   const tierCapsRef = useRef(tierCaps);
   tierCapsRef.current = tierCaps;
@@ -508,6 +524,7 @@ export function OfficeScene({
       setProfiles((prev) => ({ ...prev, [uid]: data as Profile }));
     }
   }, []);
+  const VISITOR_TELEPORT_MSG = "Visitantes se movem caminhando pelo escritório.";
 
   // ===== Camera (zoom + pan + follow) =====
   const mobileViewport = useMobileViewport();
@@ -1100,6 +1117,9 @@ export function OfficeScene({
       const { data: profs } = await supabase.from("profiles").select("id, display_name, avatar_color, sprite_id, tagline, status, onboarded_at, first_name, last_name, birth_date, city, state, country_code");
       const map: Record<string, Profile> = {};
       (profs ?? []).forEach((p) => (map[p.id] = p as Profile));
+      if (wsId) {
+        for (const v of await loadActiveVisitorProfiles(wsId)) map[v.id] = v as Profile;
+      }
       setProfiles(map);
       setMe(map[userData.user.id] ?? null);
 
@@ -1960,7 +1980,7 @@ export function OfficeScene({
 
   const claimZone = useCallback(async (zoneId: string) => {
     const uid = meIdRef.current;
-    if (!uid) return;
+    if (!uid || !officeCapsRef.current.canClaimDesk) return;
     if (!workspaceZonesForMap(loadOverrides()).some((zone) => zone.id === zoneId)) return;
     const _wsClaim = getCurrentWorkspaceId();
     if (!_wsClaim) { toast.error("Workspace inválido."); return; }
@@ -1985,7 +2005,7 @@ export function OfficeScene({
 
   const releaseClaim = useCallback(async () => {
     const uid = meIdRef.current;
-    if (!uid) return;
+    if (!uid || !officeCapsRef.current.canClaimDesk) return;
     const _wsRel = getCurrentWorkspaceId();
     let relQ = supabase.from("workspace_claims").delete().eq("user_id", uid);
     if (_wsRel) relQ = relQ.eq("workspace_id", _wsRel);
@@ -2119,6 +2139,7 @@ export function OfficeScene({
   }, [mapVersion, canonicalMapReady, positionLoaded, sendPos]);
 
   const teleportToZone = useCallback((zoneId: ZoneId, label?: string, useSpawnPoint = false) => {
+    if (!officeCapsRef.current.canTeleport) { toast.info(VISITOR_TELEPORT_MSG); return; }
     if (!tierCapsRef.current.canTeleport) {
       toast.info("Teleporte está disponível a partir do Nível 2.");
       return;
@@ -2194,6 +2215,7 @@ export function OfficeScene({
   const teleportToMyClaim = useCallback(() => {
     const uid = meIdRef.current;
     if (!uid) return;
+    if (!officeCapsRef.current.canTeleport) { toast.info(VISITOR_TELEPORT_MSG); return; }
     const myZone = Object.entries(claimsRef.current).find(([, u]) => u === uid)?.[0];
     if (!myZone) {
       toast.info("Você ainda não reivindicou nenhum espaço.");
@@ -2273,6 +2295,7 @@ export function OfficeScene({
   // ===== Join ("Junte-se a mim") =====
   // Caller asks target to teleport next to them; target accepts and lands beside caller.
   const teleportToPoint = useCallback((target: Point, label?: string) => {
+    if (!officeCapsRef.current.canTeleport) { toast.info(VISITOR_TELEPORT_MSG); return; }
     if (!tierCapsRef.current.canTeleport) {
       toast.info("Teleporte está disponível a partir do Nível 2.");
       return;
@@ -2312,6 +2335,7 @@ export function OfficeScene({
   }, [sendPos]);
 
   const requestJoin = useCallback((uid: string) => {
+    if (!officeCapsRef.current.canFollowOrJoin) return;
     const ch = leadChannelRef.current;
     const from = meIdRef.current;
     if (!ch || !from) { toast.error("Conexão indisponível."); return; }
@@ -2326,6 +2350,7 @@ export function OfficeScene({
     toast.info(`Convite enviado a ${target}.`);
   }, []);
 
+  // Visitante: teleportToPoint recusa (sem teleporte em nenhuma forma).
   const acceptJoin = useCallback((fromUid: string, fromPos: Point) => {
     const ch = leadChannelRef.current;
     const me = meIdRef.current;
@@ -3037,10 +3062,15 @@ export function OfficeScene({
         .from("profiles")
         .select("id, display_name, avatar_color, sprite_id, tagline, status, onboarded_at, first_name, last_name, birth_date, city, state, country_code")
         .in("id", ids);
-      if (cancelled || !data || data.length === 0) return;
+      const wsLazy = getCurrentWorkspaceId();
+      const found = new Set((data ?? []).map((r) => r.id));
+      const rest = ids.filter((id) => !found.has(id));
+      const visitors = wsLazy && rest.length ? await loadActiveVisitorProfiles(wsLazy, rest) : [];
+      if (cancelled || ((!data || data.length === 0) && visitors.length === 0)) return;
       setProfiles((prev) => {
         const next = { ...prev };
-        for (const row of data) next[(row as Profile).id] = row as Profile;
+        for (const row of data ?? []) next[(row as Profile).id] = row as Profile;
+        for (const v of visitors) next[v.id] = v as Profile;
         return next;
       });
     })();
@@ -3120,6 +3150,7 @@ export function OfficeScene({
   ];
 
   return (
+    <OfficeCapabilitiesContext.Provider value={officeCaps}>
     <OfficeToastLayer sceneRef={sceneRef} showTeam={showTeam}>
     <div
       ref={sceneRef}
@@ -3293,7 +3324,7 @@ export function OfficeScene({
         )}
 
         {/* Workspace-zone hover overlays (claim button / owner tooltip) */}
-        {workspaceZones.map((wz) => {
+        {officeCaps.canClaimDesk && workspaceZones.map((wz) => {
           const ownerId = claims[wz.id];
           const owner = ownerId ? profiles[ownerId] : null;
           const ownerOnline = ownerId ? positions[ownerId]?.is_online ?? false : false;
@@ -3445,6 +3476,11 @@ export function OfficeScene({
                 >
                   {profile.display_name}
                 </div>
+                {profile.is_visitor && (
+                  <div className="px-1.5 rounded-sm text-[8px] font-semibold tracking-widest uppercase mb-0.5 bg-background/80 text-muted-foreground shadow-soft" data-testid="visitor-badge">
+                    Visitante
+                  </div>
+                )}
                 <div className="relative">
                   {/* Selection ring on the floor (perspective ellipse) for remote avatars */}
                   {!isMe && (hoveredAvatarUid === profile.id || avatarMenuUid === profile.id) && (
@@ -3493,9 +3529,9 @@ export function OfficeScene({
                           profile={profile}
                           onClose={() => setAvatarMenuUid(null)}
                           onFollow={() => { startFollowing(profile.id); setAvatarMenuUid(null); }}
-                          onLead={() => { requestLead(profile.id); setAvatarMenuUid(null); }}
-                          onJoin={() => { requestJoin(profile.id); setAvatarMenuUid(null); }}
-                          onMessage={officeChat ? () => { officeChat.openPeer(profile.id); setAvatarMenuUid(null); } : undefined}
+                          onLead={officeCaps.canFollowOrJoin && !profile.is_visitor ? () => { requestLead(profile.id); setAvatarMenuUid(null); } : undefined}
+                          onJoin={officeCaps.canFollowOrJoin && !profile.is_visitor ? () => { requestJoin(profile.id); setAvatarMenuUid(null); } : undefined}
+                          onMessage={officeChat && officeCaps.canUseChat && !profile.is_visitor ? () => { officeChat.openPeer(profile.id); setAvatarMenuUid(null); } : undefined}
                         />
                       }
                     />
@@ -3747,9 +3783,9 @@ export function OfficeScene({
           const iHaveAClaim = !!(me && Object.values(claims).includes(me.id));
           const close = () => setZoneSheetId(null);
           const actions = [] as { id: string; label: string; onSelect: () => void; tone?: "primary" | "danger" }[];
-          if (!ownerId && !iHaveAClaim) actions.push({ id: "claim", label: "Reivindicar espaço", tone: "primary", onSelect: () => { close(); void claimZone(wz.id); } });
-          if (isMine) actions.push({ id: "leave", label: "Deixar mesa", tone: "danger", onSelect: () => { close(); void releaseClaim(); } });
-          if (ownerId && !isMine) actions.push({ id: "note", label: "Deixar recado", onSelect: () => {
+          if (officeCaps.canClaimDesk && !ownerId && !iHaveAClaim) actions.push({ id: "claim", label: "Reivindicar espaço", tone: "primary", onSelect: () => { close(); void claimZone(wz.id); } });
+          if (officeCaps.canClaimDesk && isMine) actions.push({ id: "leave", label: "Deixar mesa", tone: "danger", onSelect: () => { close(); void releaseClaim(); } });
+          if (officeCaps.canLeaveDeskNotes && ownerId && !isMine) actions.push({ id: "note", label: "Deixar recado", onSelect: () => {
             close();
             setComposeFor({ zoneId: wz.id, recipientId: ownerId, recipientName: owner?.display_name ?? "colega" });
             setComposeText("");
@@ -4358,7 +4394,8 @@ export function OfficeScene({
             <IconButton active={showTeam} onClick={() => setShowTeam(!showTeam)} title="Equipe">
               <Users className="w-4 h-4" />
             </IconButton>
-            {isMasterAdmin && (
+            {officeCaps.canInviteVisitors && <VisitorsButton workspaceId={getCurrentWorkspaceId()} />}
+            {isMasterAdmin && officeCaps.canEditMap && (
               <Link
                 to="/office/editor"
                 title="Editor de mapa"
@@ -4367,7 +4404,12 @@ export function OfficeScene({
                 <Pencil className="w-4 h-4" />
               </Link>
             )}
-            {me && (
+            {me && isVisitor && (
+              <div className="px-2 py-1 rounded-full text-[10px] font-semibold uppercase tracking-widest bg-muted text-muted-foreground" title="Você está como visitante">
+                {me.display_name} · Visitante
+              </div>
+            )}
+            {me && !isVisitor && (
               <ProfileMenu
                 me={me}
                 email={myEmail}
@@ -4447,8 +4489,8 @@ export function OfficeScene({
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-none z-[100] animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="glass-panel rounded-full px-4 py-2 shadow-soft text-xs text-muted-foreground">
             Use <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">WASD</kbd> ou{" "}
-            <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">setas</kbd> para se mover ·{" "}
-            <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl+D</kbd> teleporta para seu espaço ✨
+            <kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">setas</kbd> para se mover
+            {!isVisitor && <>{" · "}<kbd className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">Ctrl+D</kbd> teleporta para seu espaço ✨</>}
           </div>
         </div>
       )}
@@ -4508,6 +4550,7 @@ export function OfficeScene({
       )}
     </div>
     </OfficeToastLayer>
+    </OfficeCapabilitiesContext.Provider>
   );
 }
 
@@ -4849,8 +4892,8 @@ function AvatarInteractionMenu({
   profile: Profile;
   onClose: () => void;
   onFollow: () => void;
-  onLead: () => void;
-  onJoin: () => void;
+  onLead?: () => void;
+  onJoin?: () => void;
   onMessage?: () => void;
 }) {
   return (
@@ -4894,21 +4937,21 @@ function AvatarInteractionMenu({
         >
           <Footprints className="w-4 h-4" /> Seguir
         </button>
-        <button
+        {onLead && <button
           type="button"
           onClick={onLead}
           className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded hover:bg-muted text-left"
         >
           <UserPlus className="w-4 h-4" /> Pedir para conduzir
-        </button>
-        <button
+        </button>}
+        {onJoin && <button
           type="button"
           onClick={onJoin}
           className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded hover:bg-muted text-left"
           title={`Convidar ${profile.display_name} a se juntar a você`}
         >
           <Users className="w-4 h-4" /> Convidar {profile.display_name} a se juntar
-        </button>
+        </button>}
       </div>
     </div>
   );

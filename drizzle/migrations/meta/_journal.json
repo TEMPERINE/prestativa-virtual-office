@@ -50,6 +50,13 @@
       "when": 1792194199210,
       "tag": "0006_chat_pins_and_favorites",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792589422390,
+      "tag": "0007_workspace_visitors_v1",
+      "breakpoints": true
     }
   ]
 }

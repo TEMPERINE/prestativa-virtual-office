@@ -8,6 +8,7 @@ import { getCurrentWorkspaceId, subscribeCurrentWorkspaceId } from "@/lib/worksp
 import { toast } from "sonner";
 import { useCoarsePointer } from "@/lib/mobile/input-mode";
 import { BellPopover } from "./BellPopover";
+import { useOfficeCapabilities, VISITOR_PROP_BLOCKED_MESSAGE } from "@/lib/visitors/capabilities";
 import { OfficeCelebrationPopup } from "./OfficeCelebrationPopup";
 import {
   CELEBRATION_EVENT, buildCelebration, createCelebrationCenter, type CelebrationReason, type ShownCelebration,
@@ -327,7 +328,11 @@ export function PropsLayer({ selfX, selfY, focusedRect = null }: Props) {
   }, [frames, playAnimation]);
 
   // Sino abre o popover; demais props seguem interação direta.
+  const officeCaps = useOfficeCapabilities();
+  const canInteractRef = useRef(officeCaps.canInteractProps);
+  canInteractRef.current = officeCaps.canInteractProps;
   const requestInteract = useCallback((prop: PropInstance) => {
+    if (!canInteractRef.current) { toast.info(VISITOR_PROP_BLOCKED_MESSAGE); return; }
     if (CELEBRATION_PROP_DEFS.has(prop.defId)) { setBellMenuFor(prop.id); return; }
     triggerInteract(prop);
   }, [triggerInteract]);
@@ -416,6 +421,7 @@ export function PropsLayer({ selfX, selfY, focusedRect = null }: Props) {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       if (e.key.toLowerCase() !== "x") return;
+      if (!canInteractRef.current) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
