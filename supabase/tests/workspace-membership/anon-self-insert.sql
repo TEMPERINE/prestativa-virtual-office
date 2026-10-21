@@ -2,7 +2,7 @@
 -- Roda em transação e força ROLLBACK no final (nenhum dado permanece).
 BEGIN;
 DO $$
-DECLARE ws uuid; anon uuid := gen_random_uuid(); member uuid; ok boolean;
+DECLARE ws uuid; anon uuid := gen_random_uuid(); member uuid;;
 BEGIN
   SELECT id INTO ws FROM public.workspaces LIMIT 1;
   SELECT user_id INTO member FROM public.workspace_members WHERE workspace_id=ws AND role='member' LIMIT 1;
@@ -11,7 +11,6 @@ BEGIN
   PERFORM set_config('request.jwt.claims', json_build_object('sub',anon,'role','authenticated','is_anonymous',true)::text, true);
   PERFORM set_config('request.jwt.claim.sub', anon::text, true);
   SET LOCAL ROLE authenticated;
-  FOREACH ok IN ARRAY ARRAY[true] LOOP END LOOP;
   BEGIN
     INSERT INTO public.workspace_members(workspace_id,user_id,role) VALUES (ws,anon,'member');
     RAISE EXCEPTION 'FAIL: anon inserted member';
