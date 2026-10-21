@@ -1657,6 +1657,15 @@ export type Database = {
       visitor_peek: { Args: { _token: string }; Returns: Json }
       visitor_revoke: { Args: { _invite_id: string }; Returns: undefined }
       workspace_accept_invite: { Args: { _token: string }; Returns: string }
+      workspace_runtime_profiles: {
+        Args: { workspace_id: string }
+        Returns: {
+          avatar_color: string
+          display_name: string
+          id: string
+          sprite_id: string
+        }[]
+      }
     }
     Enums: {
       account_plan: "essencial" | "pro" | "premium"
