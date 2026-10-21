@@ -1,11 +1,11 @@
 # Office notice UX
 ## Anonymous Auth hardening homologation
-- [ ] Fix only visitor member identity loading via workspace-authorized minimal RPC (0010); keep direct profiles, memberships, prior migrations and UI/RTC/Chat/Meetings unchanged.
-- [ ] Verify runtime identity isolation, outsider/expired/revoked denial and rerun visitor database authorization plus full suite; manual signed-in check remains required.
+- [x] Fix visitor member identity loading via internally authorized four-field workspace_runtime_profiles RPC (0010); initial/lazy/visitor refresh share a loader, member profile reads and separate visitor records unchanged. No direct profiles grants, membership, prior migration, UI/RTC/Chat/Meetings changes.
+- [x] Connected rollback-only visitor-authorization.sql passed: A identities only, B/outsider/expired/revoked denied, exactly four public fields, direct profiles restricted, member identities/visitor visibility and Chat exclusion preserved. 83 test files / 873 tests passed including visitor OfficeScene integration; automatic preview build OK.
 - [x] Protect canonical workspace owner with incremental 0009; 0008 unchanged. Connected rollback-only tests passed for owner/admin/member denial, privileged trigger denial, ordinary removals and workspace cascade.
 - [x] Run connected rollback-only workspace creation and normal invitation/RPC tests: passed with simulated database claims, not signed-in Auth/API/UI. Existing authorized creator requires global admin role.
 - [x] Reaudit anonymous/visitor/member permissions; 82 files / 866 unit tests passed, automatic typecheck exit 0 and preview build OK. No publication; original 1 workspace / 17 memberships / 0 invites / 0 visitors retained.
-- [ ] Visitor profile read regression: active visitor cannot read member profiles because the SELECT policy's membership subquery is RLS-filtered. Recorded as publication blocker; visitor changes excluded from this task.
+- [x] Visitor profile read regression resolved through minimal runtime RPC, without widening profiles SELECT. Connected database test passed; real signed-in/browser identity rendering remains part of manual two-person check.
 - [ ] Authenticated workspace creation/invitation and actual LiveKit V1/V2/TURN checks: UNVERIFIED without a signed-in session; no automatic authentication permitted. SQL tests do not verify HTTP bearer handling.
 - [x] Partial visitor database checks exercised activation/runtime/session, claim/prop/Chat denial and Meeting rejection; expiry/revoke and outsider membership/profile/group/claim/prop/session denial passed in a separate rollback test. Synthetic visitor has no auth.users row, so position writes and onboarding are unverified.
 - [ ] Full visitor onboarding/runtime/two-person visual check: requires signed-in manual sessions; do not mint other users' sessions.
