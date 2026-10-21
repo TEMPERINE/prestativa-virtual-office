@@ -4550,6 +4550,7 @@ export function OfficeScene({
       )}
     </div>
     </OfficeToastLayer>
+    </OfficeCapabilitiesContext.Provider>
   );
 }
 
