@@ -6,7 +6,7 @@ DO $$
 DECLARE
   owner_uid uuid; ws uuid:=gen_random_uuid(); visitor_uid uuid:=gen_random_uuid();
   outsider uuid:=gen_random_uuid(); invite jsonb; invite_id uuid; result_ws uuid;
-  denied boolean; topic text;
+  denied boolean; topic text; member_profiles_visible boolean;
 BEGIN
   SELECT r.user_id INTO owner_uid FROM public.user_roles r JOIN auth.users u ON u.id=r.user_id
     WHERE r.role='admin' AND u.deleted_at IS NULL AND NOT coalesce(u.is_anonymous,false) LIMIT 1;
@@ -26,9 +26,9 @@ BEGIN
     OR NOT public.can_access_workspace_runtime(ws,auth.uid())
     OR public.is_workspace_admin(ws,auth.uid()) THEN RAISE EXCEPTION 'FAIL: visitor runtime isolation'; END IF;
   IF NOT EXISTS(SELECT 1 FROM public.workspaces WHERE id=ws)
-    OR NOT EXISTS(SELECT 1 FROM public.positions WHERE workspace_id=ws AND user_id=owner_uid)
-    OR NOT EXISTS(SELECT 1 FROM public.profiles WHERE id=owner_uid) THEN
+    OR NOT EXISTS(SELECT 1 FROM public.positions WHERE workspace_id=ws AND user_id=owner_uid) THEN
     RAISE EXCEPTION 'FAIL: visitor cannot read member runtime'; END IF;
+  member_profiles_visible:=EXISTS(SELECT 1 FROM public.profiles WHERE id=owner_uid);
   PERFORM public.claim_office_session(gen_random_uuid(),ws);
   FOREACH topic IN ARRAY ARRAY['presence','movement','map'] LOOP
     IF NOT public.rtc_can_access_topic('workspace:'||ws::text||':'||topic) THEN RAISE EXCEPTION 'FAIL: visitor runtime topic'; END IF;
@@ -49,7 +49,12 @@ BEGIN
   IF NOT denied THEN RAISE EXCEPTION 'FAIL: visitor Chat'; END IF;
   denied:=false;
   BEGIN PERFORM public.meeting_join(ws,'reuniao','Test');
-  EXCEPTION WHEN insufficient_privilege THEN denied:=true; END;
+  EXCEPTION
+    WHEN insufficient_privilege THEN denied:=true;
+    WHEN raise_exception THEN
+      IF SQLERRM<>'not a workspace member' THEN RAISE; END IF;
+      denied:=true;
+  END;
   IF NOT denied THEN RAISE EXCEPTION 'FAIL: visitor Meeting'; END IF;
   PERFORM set_config('request.jwt.claim.sub',owner_uid::text,true);
   IF NOT EXISTS(SELECT 1 FROM public.workspace_visitors WHERE workspace_id=ws AND user_id=visitor_uid)
@@ -86,6 +91,7 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN denied:=true; END;
   IF NOT denied THEN RAISE EXCEPTION 'FAIL: anonymous office session'; END IF;
   RESET ROLE;
+  IF NOT member_profiles_visible THEN RAISE EXCEPTION 'FAIL: visitor cannot read member profiles (membership subquery is RLS-filtered)'; END IF;
   RAISE NOTICE 'PASS: visitor activation/runtime authorization/revoke/expire; anonymous isolation';
 END $$;
 SELECT 'PASS: visitor database authorization (not Auth/UI/position/RTC)' AS result;
