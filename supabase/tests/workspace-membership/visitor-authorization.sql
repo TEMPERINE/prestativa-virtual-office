@@ -57,8 +57,7 @@ BEGIN
   RESET ROLE;
   IF EXISTS(SELECT 1 FROM public.workspace_members WHERE user_id=visitor_uid)
     OR EXISTS(SELECT 1 FROM public.profiles WHERE id=visitor_uid) THEN RAISE EXCEPTION 'FAIL: visitor became profile/member'; END IF;
-  UPDATE public.workspace_visitors SET expires_at=now()-interval '1 second' WHERE invite_id=invite_id;
-  -- Qualify below in the executable test to avoid PL/pgSQL variable ambiguity.
+  UPDATE public.workspace_visitors SET expires_at=now()-interval '1 second' WHERE workspace_id=ws AND user_id=visitor_uid;
   IF public.can_access_workspace_runtime(ws,visitor_uid) THEN RAISE EXCEPTION 'FAIL: expired visitor access'; END IF;
   UPDATE public.workspace_visitors SET expires_at=now()+interval '1 hour' WHERE workspace_id=ws AND user_id=visitor_uid;
   SET LOCAL ROLE authenticated;
