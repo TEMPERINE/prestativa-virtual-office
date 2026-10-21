@@ -2350,8 +2350,8 @@ export function OfficeScene({
     toast.info(`Convite enviado a ${target}.`);
   }, []);
 
+  // Visitante: teleportToPoint recusa (sem teleporte em nenhuma forma).
   const acceptJoin = useCallback((fromUid: string, fromPos: Point) => {
-    if (!officeCapsRef.current.canTeleport) { toast.info(VISITOR_TELEPORT_MSG); return; }
     const ch = leadChannelRef.current;
     const me = meIdRef.current;
     if (!ch || !me) return;

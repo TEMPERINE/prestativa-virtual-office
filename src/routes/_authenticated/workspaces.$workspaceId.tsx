@@ -201,7 +201,7 @@ function WorkspaceScenePage() {
           }
         />
       </div>
-      {panel === "meetings" && audience === "member" && (
+      {audience === "member" && panel === "meetings" && (
         <div data-office-meetings-panel className="fixed inset-0 z-[300] flex items-center justify-center bg-background/40 backdrop-blur-sm p-4">
           <div className="w-full h-full max-w-7xl rounded-2xl overflow-hidden border shadow-2xl bg-background">
             <MeetingsPanel embedded onBack={() => setPanel(null)} />
