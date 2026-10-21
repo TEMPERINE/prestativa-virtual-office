@@ -15,11 +15,13 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as DownloadRouteImport } from './routes/download'
 import { Route as SobreRouteImport } from './routes/sobre'
 import { Route as SpriteCompareRouteImport } from './routes/sprite-compare'
+import { Route as VisitEndedRouteImport } from './routes/visit-ended'
 import { Route as AuthenticatedAguardandoConviteRouteImport } from './routes/_authenticated/aguardando-convite'
 import { Route as AuthenticatedMeetingsRouteImport } from './routes/_authenticated/meetings'
 import { Route as AuthenticatedOfficeRouteImport } from './routes/_authenticated/office'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
 import { Route as RecordingMeetingIdRouteImport } from './routes/recording.$meetingId'
+import { Route as VisitTokenRouteImport } from './routes/visit.$token'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin.index'
 import { Route as AuthenticatedAdminContasRouteImport } from './routes/_authenticated/admin.contas'
 import { Route as AuthenticatedAdminEspacosRouteImport } from './routes/_authenticated/admin.espacos'
@@ -59,6 +61,11 @@ const SpriteCompareRoute = SpriteCompareRouteImport.update({
   path: '/sprite-compare',
   getParentRoute: () => rootRouteImport,
 } as any)
+const VisitEndedRoute = VisitEndedRouteImport.update({
+  id: '/visit-ended',
+  path: '/visit-ended',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedAguardandoConviteRoute =
   AuthenticatedAguardandoConviteRouteImport.update({
     id: '/aguardando-convite',
@@ -83,6 +90,11 @@ const AuthenticatedOnboardingRoute = AuthenticatedOnboardingRouteImport.update({
 const RecordingMeetingIdRoute = RecordingMeetingIdRouteImport.update({
   id: '/recording/$meetingId',
   path: '/recording/$meetingId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VisitTokenRoute = VisitTokenRouteImport.update({
+  id: '/visit/$token',
+  path: '/visit/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
@@ -144,11 +156,13 @@ export interface FileRoutesByFullPath {
   '/download': typeof DownloadRoute
   '/sobre': typeof SobreRoute
   '/sprite-compare': typeof SpriteCompareRoute
+  '/visit-ended': typeof VisitEndedRoute
   '/aguardando-convite': typeof AuthenticatedAguardandoConviteRoute
   '/meetings': typeof AuthenticatedMeetingsRoute
   '/office': typeof AuthenticatedOfficeRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/recording/$meetingId': typeof RecordingMeetingIdRoute
+  '/visit/$token': typeof VisitTokenRoute
   '/admin/contas': typeof AuthenticatedAdminContasRoute
   '/admin/espacos': typeof AuthenticatedAdminEspacosRoute
   '/admin/personagens': typeof AuthenticatedAdminPersonagensRoute
@@ -165,11 +179,13 @@ export interface FileRoutesByTo {
   '/download': typeof DownloadRoute
   '/sobre': typeof SobreRoute
   '/sprite-compare': typeof SpriteCompareRoute
+  '/visit-ended': typeof VisitEndedRoute
   '/aguardando-convite': typeof AuthenticatedAguardandoConviteRoute
   '/meetings': typeof AuthenticatedMeetingsRoute
   '/office': typeof AuthenticatedOfficeRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/recording/$meetingId': typeof RecordingMeetingIdRoute
+  '/visit/$token': typeof VisitTokenRoute
   '/admin/contas': typeof AuthenticatedAdminContasRoute
   '/admin/espacos': typeof AuthenticatedAdminEspacosRoute
   '/admin/personagens': typeof AuthenticatedAdminPersonagensRoute
@@ -188,11 +204,13 @@ export interface FileRoutesById {
   '/download': typeof DownloadRoute
   '/sobre': typeof SobreRoute
   '/sprite-compare': typeof SpriteCompareRoute
+  '/visit-ended': typeof VisitEndedRoute
   '/_authenticated/aguardando-convite': typeof AuthenticatedAguardandoConviteRoute
   '/_authenticated/meetings': typeof AuthenticatedMeetingsRoute
   '/_authenticated/office': typeof AuthenticatedOfficeRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/recording/$meetingId': typeof RecordingMeetingIdRoute
+  '/visit/$token': typeof VisitTokenRoute
   '/_authenticated/admin/contas': typeof AuthenticatedAdminContasRoute
   '/_authenticated/admin/espacos': typeof AuthenticatedAdminEspacosRoute
   '/_authenticated/admin/personagens': typeof AuthenticatedAdminPersonagensRoute
@@ -211,11 +229,13 @@ export interface FileRouteTypes {
     | '/download'
     | '/sobre'
     | '/sprite-compare'
+    | '/visit-ended'
     | '/aguardando-convite'
     | '/meetings'
     | '/office'
     | '/onboarding'
     | '/recording/$meetingId'
+    | '/visit/$token'
     | '/admin/contas'
     | '/admin/espacos'
     | '/admin/personagens'
@@ -232,11 +252,13 @@ export interface FileRouteTypes {
     | '/download'
     | '/sobre'
     | '/sprite-compare'
+    | '/visit-ended'
     | '/aguardando-convite'
     | '/meetings'
     | '/office'
     | '/onboarding'
     | '/recording/$meetingId'
+    | '/visit/$token'
     | '/admin/contas'
     | '/admin/espacos'
     | '/admin/personagens'
@@ -254,11 +276,13 @@ export interface FileRouteTypes {
     | '/download'
     | '/sobre'
     | '/sprite-compare'
+    | '/visit-ended'
     | '/_authenticated/aguardando-convite'
     | '/_authenticated/meetings'
     | '/_authenticated/office'
     | '/_authenticated/onboarding'
     | '/recording/$meetingId'
+    | '/visit/$token'
     | '/_authenticated/admin/contas'
     | '/_authenticated/admin/espacos'
     | '/_authenticated/admin/personagens'
@@ -277,7 +301,9 @@ export interface RootRouteChildren {
   DownloadRoute: typeof DownloadRoute
   SobreRoute: typeof SobreRoute
   SpriteCompareRoute: typeof SpriteCompareRoute
+  VisitEndedRoute: typeof VisitEndedRoute
   RecordingMeetingIdRoute: typeof RecordingMeetingIdRoute
+  VisitTokenRoute: typeof VisitTokenRoute
   ApiPublicLivekitEgressRoute: typeof ApiPublicLivekitEgressRoute
 }
 
@@ -325,6 +351,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SpriteCompareRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/visit-ended': {
+      id: '/visit-ended'
+      path: '/visit-ended'
+      fullPath: '/visit-ended'
+      preLoaderRoute: typeof VisitEndedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/aguardando-convite': {
       id: '/_authenticated/aguardando-convite'
       path: '/aguardando-convite'
@@ -358,6 +391,13 @@ declare module '@tanstack/react-router' {
       path: '/recording/$meetingId'
       fullPath: '/recording/$meetingId'
       preLoaderRoute: typeof RecordingMeetingIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/visit/$token': {
+      id: '/visit/$token'
+      path: '/visit/$token'
+      fullPath: '/visit/$token'
+      preLoaderRoute: typeof VisitTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/admin/': {
@@ -467,7 +507,9 @@ const rootRouteChildren: RootRouteChildren = {
   DownloadRoute: DownloadRoute,
   SobreRoute: SobreRoute,
   SpriteCompareRoute: SpriteCompareRoute,
+  VisitEndedRoute: VisitEndedRoute,
   RecordingMeetingIdRoute: RecordingMeetingIdRoute,
+  VisitTokenRoute: VisitTokenRoute,
   ApiPublicLivekitEgressRoute: ApiPublicLivekitEgressRoute,
 }
 export const routeTree = rootRouteImport
