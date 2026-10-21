@@ -107,7 +107,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { ProfileMenu } from "@/components/profile/ProfileMenu";
 import { OfficeCapabilitiesContext, officeCapabilitiesFor, type OfficeAudience } from "@/lib/visitors/capabilities";
-import { loadActiveVisitorProfiles } from "@/lib/visitors/profiles";
+import { loadActiveVisitorProfiles, loadOfficeMemberProfiles } from "@/lib/visitors/profiles";
 import { VisitorsButton } from "@/components/visitors/VisitorsPanel";
 import { SpriteAvatar as ProfileSpriteAvatar } from "@/components/profile/SpriteAvatar";
 import { SavedNotesDialog } from "@/components/profile/SavedNotesDialog";
@@ -1114,7 +1114,7 @@ export function OfficeScene({
           .neq("workspace_id", wsId);
       }
 
-      const { data: profs } = await supabase.from("profiles").select("id, display_name, avatar_color, sprite_id, tagline, status, onboarded_at, first_name, last_name, birth_date, city, state, country_code");
+      const profs = await loadOfficeMemberProfiles(wsId, isVisitor).catch(() => []);
       const map: Record<string, Profile> = {};
       (profs ?? []).forEach((p) => (map[p.id] = p as Profile));
       if (wsId) {
@@ -3058,11 +3058,8 @@ export function OfficeScene({
     let cancelled = false;
     void (async () => {
       const ids = Array.from(missing);
-      const { data } = await supabase
-        .from("profiles")
-        .select("id, display_name, avatar_color, sprite_id, tagline, status, onboarded_at, first_name, last_name, birth_date, city, state, country_code")
-        .in("id", ids);
       const wsLazy = getCurrentWorkspaceId();
+      const data = await loadOfficeMemberProfiles(wsLazy, isVisitor, ids).catch(() => []);
       const found = new Set((data ?? []).map((r) => r.id));
       const rest = ids.filter((id) => !found.has(id));
       const visitors = wsLazy && rest.length ? await loadActiveVisitorProfiles(wsLazy, rest) : [];
@@ -3075,7 +3072,35 @@ export function OfficeScene({
       });
     })();
     return () => { cancelled = true; };
-  }, [positions, presentPeerIds, profiles]);
+  }, [positions, presentPeerIds, profiles, isVisitor]);
+
+  // Restricted table realtime cannot deliver member identities to visitors.
+  // Refresh through the same authorized projection, never widening table reads.
+  useEffect(() => {
+    if (!isVisitor) return;
+    let cancelled = false;
+    let pending = false;
+    const refresh = async () => {
+      const ws = getCurrentWorkspaceId();
+      if (!ws || pending || document.visibilityState === "hidden") return;
+      pending = true;
+      try {
+        const rows = await loadOfficeMemberProfiles(ws, true);
+        if (!cancelled) setProfiles((prev) => {
+          const next: Record<string, Profile> = {};
+          for (const p of Object.values(prev)) if (p.is_visitor) next[p.id] = p;
+          for (const p of rows) next[p.id] = p;
+          return next;
+        });
+      } catch {
+        if (!cancelled) setProfiles((prev) => Object.fromEntries(Object.entries(prev).filter(([, p]) => p.is_visitor)));
+      } finally { pending = false; }
+    };
+    const timer = window.setInterval(() => { void refresh(); }, 15_000);
+    const onVisible = () => { void refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { cancelled = true; window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, [isVisitor]);
 
   const offlineList = useMemo(() => {
     const onlineIds = new Set(onlineList.map((x) => x.profile.id));
