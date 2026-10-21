@@ -1,5 +1,7 @@
 # Office notice UX
 ## Anonymous Auth hardening homologation
+- [ ] Fix only visitor member identity loading via workspace-authorized minimal RPC (0010); keep direct profiles, memberships, prior migrations and UI/RTC/Chat/Meetings unchanged.
+- [ ] Verify runtime identity isolation, outsider/expired/revoked denial and rerun visitor database authorization plus full suite; manual signed-in check remains required.
 - [x] Protect canonical workspace owner with incremental 0009; 0008 unchanged. Connected rollback-only tests passed for owner/admin/member denial, privileged trigger denial, ordinary removals and workspace cascade.
 - [x] Run connected rollback-only workspace creation and normal invitation/RPC tests: passed with simulated database claims, not signed-in Auth/API/UI. Existing authorized creator requires global admin role.
 - [x] Reaudit anonymous/visitor/member permissions; 82 files / 866 unit tests passed, automatic typecheck exit 0 and preview build OK. No publication; original 1 workspace / 17 memberships / 0 invites / 0 visitors retained.
