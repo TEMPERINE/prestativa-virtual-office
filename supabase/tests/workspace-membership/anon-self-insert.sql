@@ -2,7 +2,7 @@
 -- Roda em transação e força ROLLBACK no final (nenhum dado permanece).
 BEGIN;
 DO $$
-DECLARE ws uuid; anon uuid := gen_random_uuid(); member uuid;;
+DECLARE ws uuid; anon uuid := gen_random_uuid(); member uuid;
 BEGIN
   SELECT id INTO ws FROM public.workspaces LIMIT 1;
   SELECT user_id INTO member FROM public.workspace_members WHERE workspace_id=ws AND role='member' LIMIT 1;
