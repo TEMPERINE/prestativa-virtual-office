@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
+import { authorizeV1Room } from "./rtc-access";
 
 const Input = z.object({
   roomName: z
@@ -26,6 +27,16 @@ export const getLiveKitAccess = createServerFn({ method: "POST" })
         "Sessão da chamada não corresponde ao personagem atual. Recarregue o espaço.",
       );
     }
+
+    // Sala arbitrária não: workspace extraído do nome e membership real exigido.
+    await authorizeV1Room(data.roomName, async (ws) => {
+      const { data: ok, error } = await context.supabase.rpc("is_workspace_member", {
+        _workspace_id: ws,
+        _user_id: context.userId,
+      });
+      if (error) throw new Error("RTC_V1_CHECK_FAILED");
+      return ok === true;
+    });
 
     const apiKey = process.env.LIVEKIT_API_KEY;
     const apiSecret = process.env.LIVEKIT_API_SECRET;

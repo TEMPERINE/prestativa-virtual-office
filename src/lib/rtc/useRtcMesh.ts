@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getIceServers, type IceServer } from "@/lib/rtc/ice.functions";
+import { getCurrentWorkspaceId } from "@/lib/workspace/current";
 
 type SignalType = "offer" | "answer" | "ice" | "bye" | "hello" | "renegotiate";
 type SignalMsg = {
@@ -121,7 +122,9 @@ export function useRtcMesh(myId: string | null, desiredPeers: string[]): RtcMesh
   // Load TURN credentials once on mount (from server fn).
   useEffect(() => {
     let cancelled = false;
-    void getIceServers()
+    const workspaceId = getCurrentWorkspaceId();
+    if (!workspaceId) return;
+    void getIceServers({ data: { workspaceId } })
       .then((servers) => {
         if (!cancelled && Array.isArray(servers) && servers.length) {
           iceServersRef.current = servers;

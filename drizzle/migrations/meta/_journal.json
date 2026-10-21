@@ -57,6 +57,13 @@
       "when": 1792589422390,
       "tag": "0007_workspace_visitors_v1",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792606720927,
+      "tag": "0008_anon_auth_hardening",
+      "breakpoints": true
     }
   ]
 }
