@@ -10,9 +10,16 @@ export const getLiveKitTokenV2 = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const sb = context.supabase;
     try {
+      // Visitantes ativos: só LOBBY (proximidade); salas privadas/reuniões seguem só para membros.
+      const { data: member, error: memErr } = await sb.rpc("is_workspace_member", {
+        _workspace_id: data.workspaceId,
+        _user_id: context.userId,
+      });
+      if (memErr) throw memErr;
+      if (member !== true && data.context !== "LOBBY") throw new TokenV2Error("NOT_MEMBER");
       return await issueLiveKitTokenV2(context.userId, data, {
         async isMember(workspaceId, userId) {
-          const { data: ok, error } = await sb.rpc("is_workspace_member", {
+          const { data: ok, error } = await sb.rpc("can_access_workspace_runtime", {
             _workspace_id: workspaceId,
             _user_id: userId,
           });
@@ -43,7 +50,15 @@ export const getLiveKitTokenV2 = createServerFn({ method: "POST" })
             .select("display_name")
             .eq("id", userId)
             .maybeSingle();
-          return p?.display_name ?? null;
+          if (p?.display_name) return p.display_name;
+          const { data: v } = await sb
+            .from("workspace_visitors")
+            .select("display_name")
+            .eq("user_id", userId)
+            .is("revoked_at", null)
+            .gt("expires_at", new Date().toISOString())
+            .maybeSingle();
+          return v?.display_name ?? null;
         },
         config: {
           url: process.env.LIVEKIT_URL,
