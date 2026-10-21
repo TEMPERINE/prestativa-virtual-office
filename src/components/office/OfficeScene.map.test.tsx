@@ -22,6 +22,7 @@ const io = vi.hoisted(() => {
   let mapRead: Promise<unknown> = Promise.resolve(null);
   let includeSavedDbPosition = true;
   let ownClaim: string | null = null;
+  let visitorMode = false;
   const persisted: Record<string, any>[] = [];
   const profiles = [
     {
@@ -45,7 +46,9 @@ const io = vi.hoisted(() => {
   const from = vi.fn((table: string) => {
     const data =
       table === "profiles"
-        ? profiles
+        ? visitorMode ? [] : profiles
+        : table === "workspace_visitors" && visitorMode
+          ? [{ user_id: uid, display_name: "Temporary", sprite_id: "marcio" }]
         : table === "positions"
           ? profiles
               .filter((p) => includeSavedDbPosition || p.id !== uid)
@@ -104,7 +107,7 @@ const io = vi.hoisted(() => {
   });
   const supabase = {
     from,
-    rpc: vi.fn(async () => ({ data: null, error: null })),
+    rpc: vi.fn(async (name: string) => ({ data: name === "workspace_runtime_profiles" ? profiles.filter((p) => p.id === peer) : null, error: null })),
     realtime: { setAuth: vi.fn(async () => {}) },
     auth: {
       getUser: vi.fn(async () => ({ data: { user: { id: uid } } })),
@@ -175,6 +178,7 @@ const io = vi.hoisted(() => {
     setSavedDbPosition: (value: boolean) => {
       includeSavedDbPosition = value;
     },
+    setVisitorMode: (value: boolean) => { visitorMode = value; },
   };
 });
 vi.mock("@/integrations/supabase/client", () => ({ supabase: io.supabase }));
@@ -209,6 +213,9 @@ beforeEach(() => {
   io.persisted.length = 0;
   io.channels.length = 0;
   io.setSavedDbPosition(true);
+  io.setVisitorMode(false);
+  io.supabase.from.mockClear();
+  io.supabase.rpc.mockClear();
   io.setOwnClaim(null);
   __resetMapSyncForTests();
   localStorage.clear();
@@ -222,8 +229,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function mountScene() {
-  const route = createRootRoute({ component: () => <OfficeScene /> });
+async function mountScene(audience: "member" | "visitor" = "member") {
+  const route = createRootRoute({ component: () => <OfficeScene audience={audience} /> });
   const router = createRouter({
     routeTree: route,
     history: createMemoryHistory({ initialEntries: ["/"] }),
@@ -238,6 +245,17 @@ async function mountScene() {
   return () => client.clear();
 }
 const openMap = () => ({ ...newOverrides(), theme: "default" });
+it("visitor scene loads colleague identities from authorized RPC without reading member profiles", async () => {
+  io.setVisitorMode(true);
+  io.setMapRead(Promise.resolve({ data: openMap(), version: 1 }));
+  const done = await mountScene("visitor");
+  await waitFor(() => expect(io.supabase.rpc).toHaveBeenCalledWith("workspace_runtime_profiles", {
+    workspace_id: "10000000-0000-4000-8000-000000000001",
+  }));
+  expect(io.supabase.from.mock.calls.some(([table]) => table === "profiles")).toBe(false);
+  expect(io.supabase.from).toHaveBeenCalledWith("workspace_visitors");
+  done();
+});
 const saved = () => JSON.parse(localStorage.getItem(`office:last-position:v1:${io.uid}`)!);
 it("does not correct a saved point before canonical load, then recovers nearby and persists normally", async () => {
   let resolve!: (row: unknown) => void;
