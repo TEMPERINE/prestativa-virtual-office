@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getIceServers, type IceServer } from "@/lib/rtc/ice.functions";
+import { getCurrentWorkspaceId } from "@/lib/workspace/current";
 
 type SignalType = "offer" | "answer" | "ice" | "bye" | "hello" | "renegotiate";
 type SignalMsg = {
