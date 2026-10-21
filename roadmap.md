@@ -1,4 +1,9 @@
 # Office notice UX
+## Anonymous Auth hardening homologation
+- [ ] Protect canonical workspace owner against membership deletion with a new incremental migration (leave 0008 unchanged).
+- [ ] Run isolated rollback-only membership, workspace creation, normal invitation and visitor authorization database tests.
+- [ ] Reaudit anonymous/visitor/member access and run full suite; record typecheck/build and publication blockers.
+- [ ] Full visitor onboarding/runtime/two-person visual check: requires signed-in manual sessions; do not mint other users' sessions.
 - [x] Correct touch camera to visible scene bounds; verify landscape full map and portrait avatar follow with 39 tests and isolated browser captures at 390×844 / 844×390; desktop preserved, no publishing. Physical iPhone and authenticated Office not tested.
 ## Sprite rendering phase 1
 - [x] Separate exact atlas frame selection from fine alignment; remove texture filters and preserve independent ground shadow.
