@@ -20,7 +20,8 @@ BEGIN
   INSERT INTO public.workspaces(id,slug,name,owner_id,tier) VALUES(ws,'visitor-test-'||ws::text,'Rollback visitor test',auth.uid(),1);
   INSERT INTO public.workspace_members(workspace_id,user_id,role) VALUES(ws,auth.uid(),'owner');
   INSERT INTO public.workspaces(id,slug,name,owner_id,tier) VALUES(other_ws,'other-test-'||other_ws::text,'Rollback workspace B',auth.uid(),1);
-  INSERT INTO public.workspace_members(workspace_id,user_id,role) VALUES(other_ws,auth.uid(),'owner'),(other_ws,other_member,'member');
+  INSERT INTO public.workspace_members(workspace_id,user_id,role) VALUES(other_ws,auth.uid(),'owner');
+  INSERT INTO public.workspace_members(workspace_id,user_id,role) VALUES(other_ws,other_member,'member');
   INSERT INTO public.positions(workspace_id,user_id,x,y,zone,facing,is_online) VALUES(ws,auth.uid(),100,100,'lobby','down',true);
   invite:=public.visitor_create_invite(ws,'Temporary test',now(),now()+interval '1 hour');
   invite_id:=(invite->>'id')::uuid;
