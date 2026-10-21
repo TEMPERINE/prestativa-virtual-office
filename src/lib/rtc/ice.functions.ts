@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { authorizeIce } from "./rtc-access";
 
 export type IceServer = {
   urls: string | string[];
@@ -7,9 +8,18 @@ export type IceServer = {
   credential?: string;
 };
 
-export const getIceServers = createServerFn({ method: "GET" })
+export const getIceServers = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async (): Promise<IceServer[]> => {
+  .inputValidator((d: { workspaceId: string }) => d)
+  .handler(async ({ data, context }): Promise<IceServer[]> => {
+    await authorizeIce(data?.workspaceId, async (ws) => {
+      const { data: ok, error } = await context.supabase.rpc("can_access_workspace_runtime", {
+        _workspace_id: ws,
+        _user_id: context.userId,
+      });
+      if (error) throw new Error("ICE_CHECK_FAILED");
+      return ok === true;
+    });
     const username = process.env.TURN_USERNAME;
     const credential = process.env.TURN_CREDENTIAL;
     const servers: IceServer[] = [

@@ -121,7 +121,9 @@ export function useRtcMesh(myId: string | null, desiredPeers: string[]): RtcMesh
   // Load TURN credentials once on mount (from server fn).
   useEffect(() => {
     let cancelled = false;
-    void getIceServers()
+    const workspaceId = getCurrentWorkspaceId();
+    if (!workspaceId) return;
+    void getIceServers({ data: { workspaceId } })
       .then((servers) => {
         if (!cancelled && Array.isArray(servers) && servers.length) {
           iceServersRef.current = servers;
