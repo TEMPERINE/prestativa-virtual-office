@@ -1186,6 +1186,116 @@ export type Database = {
           },
         ]
       }
+      workspace_visitor_invites: {
+        Row: {
+          activated_at: string | null
+          activated_by: string | null
+          created_at: string
+          created_by: string
+          expires_at: string
+          id: string
+          intended_name: string | null
+          revoked_at: string | null
+          starts_at: string
+          token_hash: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          activated_at?: string | null
+          activated_by?: string | null
+          created_at?: string
+          created_by: string
+          expires_at: string
+          id?: string
+          intended_name?: string | null
+          revoked_at?: string | null
+          starts_at: string
+          token_hash: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          activated_at?: string | null
+          activated_by?: string | null
+          created_at?: string
+          created_by?: string
+          expires_at?: string
+          id?: string
+          intended_name?: string | null
+          revoked_at?: string | null
+          starts_at?: string
+          token_hash?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_visitor_invites_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_visitors: {
+        Row: {
+          created_at: string
+          display_name: string
+          expires_at: string
+          id: string
+          invite_id: string
+          last_seen_at: string | null
+          revoked_at: string | null
+          sprite_id: string
+          started_at: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          expires_at: string
+          id?: string
+          invite_id: string
+          last_seen_at?: string | null
+          revoked_at?: string | null
+          sprite_id: string
+          started_at?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          expires_at?: string
+          id?: string
+          invite_id?: string
+          last_seen_at?: string | null
+          revoked_at?: string | null
+          sprite_id?: string
+          started_at?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_visitors_invite_id_fkey"
+            columns: ["invite_id"]
+            isOneToOne: true
+            referencedRelation: "workspace_visitor_invites"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_visitors_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workspaces: {
         Row: {
           cover_url: string | null
@@ -1237,6 +1347,10 @@ export type Database = {
       account_plan_max_tier: {
         Args: { _plan: Database["public"]["Enums"]["account_plan"] }
         Returns: number
+      }
+      can_access_workspace_runtime: {
+        Args: { _user_id: string; _workspace_id: string }
+        Returns: boolean
       }
       can_read_meeting_participants: {
         Args: { _meeting_id: string; _user_id: string }
@@ -1375,6 +1489,10 @@ export type Database = {
         Returns: boolean
       }
       invite_peek: { Args: { _token: string }; Returns: Json }
+      is_active_workspace_visitor: {
+        Args: { _user_id: string; _workspace_id: string }
+        Returns: boolean
+      }
       is_meeting_participant: {
         Args: { _meeting_id: string; _user_id: string }
         Returns: boolean
@@ -1518,6 +1636,26 @@ export type Database = {
         Returns: boolean
       }
       rtc_can_access_topic: { Args: { _topic: string }; Returns: boolean }
+      visitor_activate: {
+        Args: { _name: string; _sprite_id: string; _token: string }
+        Returns: string
+      }
+      visitor_create_invite: {
+        Args: {
+          _expires_at: string
+          _name: string
+          _starts_at: string
+          ws: string
+        }
+        Returns: Json
+      }
+      visitor_extend: {
+        Args: { _expires_at: string; _invite_id: string }
+        Returns: undefined
+      }
+      visitor_list: { Args: { ws: string }; Returns: Json }
+      visitor_peek: { Args: { _token: string }; Returns: Json }
+      visitor_revoke: { Args: { _invite_id: string }; Returns: undefined }
       workspace_accept_invite: { Args: { _token: string }; Returns: string }
     }
     Enums: {
