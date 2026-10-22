@@ -107,7 +107,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { ProfileMenu } from "@/components/profile/ProfileMenu";
 import { OfficeCapabilitiesContext, officeCapabilitiesFor, type OfficeAudience } from "@/lib/visitors/capabilities";
-import { loadActiveVisitorProfiles, loadOfficeMemberProfiles } from "@/lib/visitors/profiles";
+import { buildRuntimeProfileMap, loadActiveVisitorProfiles, loadOfficeMemberProfiles } from "@/lib/visitors/profiles";
 import { VisitorsButton } from "@/components/visitors/VisitorsPanel";
 import { SpriteAvatar as ProfileSpriteAvatar } from "@/components/profile/SpriteAvatar";
 import { SavedNotesDialog } from "@/components/profile/SavedNotesDialog";
@@ -515,6 +515,7 @@ export function OfficeScene({
   const setEditProfOpen = (o: boolean) => onPanelChange?.(o ? "profile" : null);
   const [forceOnboarding, setForceOnboarding] = useState(false);
 
+  const teamRefreshRef = useRef<(() => void) | null>(null);
   const refreshMe = useCallback(async () => {
     const uid = meIdRef.current;
     if (!uid) return;
@@ -1114,12 +1115,15 @@ export function OfficeScene({
           .neq("workspace_id", wsId);
       }
 
-      const profs = await loadOfficeMemberProfiles(wsId, isVisitor).catch(() => []);
-      const map: Record<string, Profile> = {};
-      (profs ?? []).forEach((p) => (map[p.id] = p as Profile));
-      if (wsId) {
-        for (const v of await loadActiveVisitorProfiles(wsId)) map[v.id] = v as Profile;
+      const profs = await loadOfficeMemberProfiles(wsId).catch(() => []);
+      const visitorsInit = wsId ? await loadActiveVisitorProfiles(wsId) : [];
+      // Perfil completo só do próprio usuário (membro); equipe usa a projeção mínima.
+      let selfFull: Profile | null = null;
+      if (!isVisitor) {
+        const { data: own } = await supabase.from("profiles").select("id, display_name, avatar_color, sprite_id, tagline, status, onboarded_at, first_name, last_name, birth_date, city, state, country_code").eq("id", userData.user.id).maybeSingle();
+        selfFull = (own as Profile) ?? null;
       }
+      const map = buildRuntimeProfileMap<Profile>(profs, visitorsInit, selfFull);
       setProfiles(map);
       setMe(map[userData.user.id] ?? null);
 
@@ -1743,31 +1747,17 @@ export function OfficeScene({
           });
         }
       );
-    // Realtime de profiles: quando alguém troca skin/nome/cor/status,
-    // todos os outros recebem a atualização sem precisar recarregar.
+    // Isolamento multi-workspace: nada de realtime global em public.profiles.
+    // Mudanças de membership DESTE workspace só disparam novo fetch da projeção autorizada.
+    const teamWs = getCurrentWorkspaceId();
     const profilesCh = supabase
-      .channel(`profiles-room:${wsSuffix}:${realtimeChannelSuffix}`)
+      .channel(`team-members:${wsSuffix}:${realtimeChannelSuffix}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "profiles" },
-        (payload) => {
-          if (payload.eventType === "DELETE") {
-            const old = payload.old as { id?: string };
-            if (!old?.id) return;
-            setProfiles((prev) => {
-              const next = { ...prev };
-              delete next[old.id!];
-              return next;
-            });
-            return;
-          }
-          const row = payload.new as Profile;
-          if (!row?.id) return;
-          setProfiles((prev) => ({ ...prev, [row.id]: { ...(prev[row.id] ?? {}), ...row } }));
-          if (row.id === meIdRef.current) {
-            setMe((prev) => ({ ...(prev ?? {} as Profile), ...row }));
-          }
-        }
+        teamWs
+          ? { event: "*", schema: "public", table: "workspace_members", filter: `workspace_id=eq.${teamWs}` }
+          : { event: "*", schema: "public", table: "workspace_members", filter: "workspace_id=eq.00000000-0000-0000-0000-000000000000" },
+        () => { teamRefreshRef.current?.(); },
       );
     // assina depois que o JWT estiver hidratado no socket de realtime
     void (async () => {
@@ -3059,14 +3049,14 @@ export function OfficeScene({
     void (async () => {
       const ids = Array.from(missing);
       const wsLazy = getCurrentWorkspaceId();
-      const data = await loadOfficeMemberProfiles(wsLazy, isVisitor, ids).catch(() => []);
+      const data = await loadOfficeMemberProfiles(wsLazy, ids).catch(() => []);
       const found = new Set((data ?? []).map((r) => r.id));
       const rest = ids.filter((id) => !found.has(id));
       const visitors = wsLazy && rest.length ? await loadActiveVisitorProfiles(wsLazy, rest) : [];
       if (cancelled || ((!data || data.length === 0) && visitors.length === 0)) return;
       setProfiles((prev) => {
         const next = { ...prev };
-        for (const row of data ?? []) next[(row as Profile).id] = row as Profile;
+        for (const row of data ?? []) next[row.id] = { ...(next[row.id] ?? {}), ...row } as Profile;
         for (const v of visitors) next[v.id] = v as Profile;
         return next;
       });
@@ -3074,10 +3064,9 @@ export function OfficeScene({
     return () => { cancelled = true; };
   }, [positions, presentPeerIds, profiles, isVisitor]);
 
-  // Restricted table realtime cannot deliver member identities to visitors.
-  // Refresh through the same authorized projection, never widening table reads.
+  // Equipe = membros do workspace atual (workspace_runtime_profiles) + visitantes ativos dele.
+  // Reconstrói o cache inteiro: memberships removidas e visitantes expirados somem; nada de outro workspace.
   useEffect(() => {
-    if (!isVisitor) return;
     let cancelled = false;
     let pending = false;
     const refresh = async () => {
@@ -3085,22 +3074,21 @@ export function OfficeScene({
       if (!ws || pending || document.visibilityState === "hidden") return;
       pending = true;
       try {
-        const rows = await loadOfficeMemberProfiles(ws, true);
+        const [rows, visitors] = await Promise.all([loadOfficeMemberProfiles(ws), loadActiveVisitorProfiles(ws)]);
         if (!cancelled) setProfiles((prev) => {
-          const next: Record<string, Profile> = {};
-          for (const p of Object.values(prev)) if (p.is_visitor) next[p.id] = p;
-          for (const p of rows) next[p.id] = p;
-          return next;
+          const selfId = meIdRef.current;
+          return buildRuntimeProfileMap<Profile>(rows, visitors, selfId ? prev[selfId] ?? null : null);
         });
       } catch {
-        if (!cancelled) setProfiles((prev) => Object.fromEntries(Object.entries(prev).filter(([, p]) => p.is_visitor)));
+        if (!cancelled) setProfiles((prev) => Object.fromEntries(Object.entries(prev).filter(([id, p]) => p.is_visitor || id === meIdRef.current)));
       } finally { pending = false; }
     };
+    teamRefreshRef.current = () => { void refresh(); };
     const timer = window.setInterval(() => { void refresh(); }, 15_000);
     const onVisible = () => { void refresh(); };
     document.addEventListener("visibilitychange", onVisible);
-    return () => { cancelled = true; window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
-  }, [isVisitor]);
+    return () => { cancelled = true; teamRefreshRef.current = null; window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, []);
 
   const offlineList = useMemo(() => {
     const onlineIds = new Set(onlineList.map((x) => x.profile.id));

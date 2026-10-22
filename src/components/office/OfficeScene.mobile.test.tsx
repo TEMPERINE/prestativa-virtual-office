@@ -104,7 +104,7 @@ const io = vi.hoisted(() => {
   });
   const supabase = {
     from,
-    rpc: vi.fn(async () => ({ data: null, error: null })),
+    rpc: vi.fn(async (fn: string) => ({ data: fn === "workspace_runtime_profiles" ? profiles : null, error: null })),
     realtime: { setAuth: vi.fn(async () => {}) },
     auth: {
       getUser: vi.fn(async () => ({ data: { user: { id: uid } } })),
