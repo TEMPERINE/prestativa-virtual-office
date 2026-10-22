@@ -515,6 +515,7 @@ export function OfficeScene({
   const setEditProfOpen = (o: boolean) => onPanelChange?.(o ? "profile" : null);
   const [forceOnboarding, setForceOnboarding] = useState(false);
 
+  const teamRefreshRef = useRef<(() => void) | null>(null);
   const refreshMe = useCallback(async () => {
     const uid = meIdRef.current;
     if (!uid) return;
@@ -1746,31 +1747,17 @@ export function OfficeScene({
           });
         }
       );
-    // Realtime de profiles: quando alguém troca skin/nome/cor/status,
-    // todos os outros recebem a atualização sem precisar recarregar.
+    // Isolamento multi-workspace: nada de realtime global em public.profiles.
+    // Mudanças de membership DESTE workspace só disparam novo fetch da projeção autorizada.
+    const teamWs = getCurrentWorkspaceId();
     const profilesCh = supabase
-      .channel(`profiles-room:${wsSuffix}:${realtimeChannelSuffix}`)
+      .channel(`team-members:${wsSuffix}:${realtimeChannelSuffix}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "profiles" },
-        (payload) => {
-          if (payload.eventType === "DELETE") {
-            const old = payload.old as { id?: string };
-            if (!old?.id) return;
-            setProfiles((prev) => {
-              const next = { ...prev };
-              delete next[old.id!];
-              return next;
-            });
-            return;
-          }
-          const row = payload.new as Profile;
-          if (!row?.id) return;
-          setProfiles((prev) => ({ ...prev, [row.id]: { ...(prev[row.id] ?? {}), ...row } }));
-          if (row.id === meIdRef.current) {
-            setMe((prev) => ({ ...(prev ?? {} as Profile), ...row }));
-          }
-        }
+        teamWs
+          ? { event: "*", schema: "public", table: "workspace_members", filter: `workspace_id=eq.${teamWs}` }
+          : { event: "*", schema: "public", table: "workspace_members", filter: "workspace_id=eq.00000000-0000-0000-0000-000000000000" },
+        () => { teamRefreshRef.current?.(); },
       );
     // assina depois que o JWT estiver hidratado no socket de realtime
     void (async () => {
