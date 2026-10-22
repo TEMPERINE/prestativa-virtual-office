@@ -11,20 +11,33 @@ export type VisitorProfile = {
   is_visitor: true;
 };
 
-/** Members keep their existing profile read; visitors use only authorized display identities. */
-export async function loadOfficeMemberProfiles(workspaceId: string | null, isVisitor: boolean, ids?: string[]) {
-  if (isVisitor) {
-    if (!workspaceId) return [];
-    const { data, error } = await supabase.rpc("workspace_runtime_profiles", { workspace_id: workspaceId });
-    if (error) throw error;
-    return (data ?? []).filter((p) => !ids || ids.includes(p.id)).map((p) => ({
-      id: p.id, display_name: p.display_name, sprite_id: p.sprite_id, avatar_color: p.avatar_color,
-    }));
-  }
-  let q = supabase.from("profiles").select("id, display_name, avatar_color, sprite_id, tagline, status, onboarded_at, first_name, last_name, birth_date, city, state, country_code");
-  if (ids) q = q.in("id", ids);
-  const { data } = await q;
-  return data ?? [];
+export type RuntimeMemberProfile = { id: string; display_name: string; sprite_id: string | null; avatar_color: string };
+
+/**
+ * Identidades visuais da equipe do workspace atual (membros reais apenas).
+ * Fonte única para membros e visitantes: workspace_runtime_profiles (membership é a autoridade).
+ * Nunca lê public.profiles diretamente — evita vazar perfis de outros workspaces.
+ */
+export async function loadOfficeMemberProfiles(workspaceId: string | null, ids?: string[]): Promise<RuntimeMemberProfile[]> {
+  if (!workspaceId) return [];
+  const { data, error } = await supabase.rpc("workspace_runtime_profiles", { workspace_id: workspaceId });
+  if (error) throw error;
+  return (data ?? []).filter((p) => !ids || ids.includes(p.id)).map((p) => ({
+    id: p.id, display_name: p.display_name, sprite_id: p.sprite_id, avatar_color: p.avatar_color,
+  }));
+}
+
+/** Monta o cache de perfis do runtime: só membros + visitantes ativos do workspace; o próprio usuário mantém campos completos. */
+export function buildRuntimeProfileMap<T extends { id: string }>(
+  members: RuntimeMemberProfile[],
+  visitors: VisitorProfile[],
+  self?: T | null,
+): Record<string, T> {
+  const map: Record<string, T> = {};
+  for (const m of members) map[m.id] = m as unknown as T;
+  for (const v of visitors) map[v.id] = v as unknown as T;
+  if (self && map[self.id]) map[self.id] = { ...map[self.id], ...self };
+  return map;
 }
 
 /** Visitantes ativos do workspace como perfis de exibição (sem tocar em public.profiles). */

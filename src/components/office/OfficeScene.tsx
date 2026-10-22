@@ -107,7 +107,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { ProfileMenu } from "@/components/profile/ProfileMenu";
 import { OfficeCapabilitiesContext, officeCapabilitiesFor, type OfficeAudience } from "@/lib/visitors/capabilities";
-import { loadActiveVisitorProfiles, loadOfficeMemberProfiles } from "@/lib/visitors/profiles";
+import { buildRuntimeProfileMap, loadActiveVisitorProfiles, loadOfficeMemberProfiles } from "@/lib/visitors/profiles";
 import { VisitorsButton } from "@/components/visitors/VisitorsPanel";
 import { SpriteAvatar as ProfileSpriteAvatar } from "@/components/profile/SpriteAvatar";
 import { SavedNotesDialog } from "@/components/profile/SavedNotesDialog";
@@ -1114,12 +1114,15 @@ export function OfficeScene({
           .neq("workspace_id", wsId);
       }
 
-      const profs = await loadOfficeMemberProfiles(wsId, isVisitor).catch(() => []);
-      const map: Record<string, Profile> = {};
-      (profs ?? []).forEach((p) => (map[p.id] = p as Profile));
-      if (wsId) {
-        for (const v of await loadActiveVisitorProfiles(wsId)) map[v.id] = v as Profile;
+      const profs = await loadOfficeMemberProfiles(wsId).catch(() => []);
+      const visitorsInit = wsId ? await loadActiveVisitorProfiles(wsId) : [];
+      // Perfil completo só do próprio usuário (membro); equipe usa a projeção mínima.
+      let selfFull: Profile | null = null;
+      if (!isVisitor) {
+        const { data: own } = await supabase.from("profiles").select("id, display_name, avatar_color, sprite_id, tagline, status, onboarded_at, first_name, last_name, birth_date, city, state, country_code").eq("id", userData.user.id).maybeSingle();
+        selfFull = (own as Profile) ?? null;
       }
+      const map = buildRuntimeProfileMap<Profile>(profs, visitorsInit, selfFull);
       setProfiles(map);
       setMe(map[userData.user.id] ?? null);
 
