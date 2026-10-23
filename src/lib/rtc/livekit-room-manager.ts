@@ -324,6 +324,11 @@ export class LiveKitRoomManager {
 
   private fail(ctx: MediaContext, e: unknown, connectFailure = true): void {
     this.failedCtx = ctx;
+    // Visitante em sala de vídeo/reunião: estado neutro (sem mídia), sem erro nem retry.
+    if (String(e instanceof Error ? e.message : e).includes("VISITOR_ZONE_FORBIDDEN")) {
+      this.patch({ status: "DISCONNECTED", connected: null, roomName: null, error: null });
+      return;
+    }
     if (connectFailure) {
       if (isMapVersionStaleError(e)) this.tel("MAP_STALE", ctx, { error: e });
       this.tel("ROOM_CONNECT_FAILED", ctx, { error: e, connectionState: "ERROR" });

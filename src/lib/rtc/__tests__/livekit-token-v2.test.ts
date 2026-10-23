@@ -39,6 +39,7 @@ function makeDeps(
     members: Record<string, string[]>;
     sessions: Record<string, OfficeSessionRow>;
     map: { data: unknown; version: number } | null;
+    visitors: Record<string, string[]>;
   }> = {},
 ) {
   const members = o.members ?? { [WS]: [U1, U2] };
@@ -49,7 +50,10 @@ function makeDeps(
   const map =
     o.map === undefined ? { data: mapData({ reuniao: 4, "custom-work": 2 }), version: 7 } : o.map;
   const deps: TokenV2Deps = {
-    isMember: vi.fn(async (w, u) => (members[w] ?? []).includes(u)),
+    canAccessRuntime: vi.fn(
+      async (w, u) => (members[w] ?? []).includes(u) || (o.visitors?.[w] ?? []).includes(u),
+    ),
+    isWorkspaceMember: vi.fn(async (w, u) => (members[w] ?? []).includes(u)),
     getOfficeSession: vi.fn(async (u) => sessions[u] ?? null),
     getCanonicalMap: vi.fn(async () => map),
     getDisplayName: vi.fn(async () => "Fulano"),
@@ -205,7 +209,7 @@ describe("LiveKit token v2", () => {
     const r = await issueLiveKitTokenV2(U1, lobby(), d);
     expect(typeof r.token).toBe("string");
     expect(d.getOfficeSession).toHaveBeenCalledTimes(1);
-    expect(d.isMember).toHaveBeenCalledTimes(1);
+    expect(d.canAccessRuntime).toHaveBeenCalledTimes(1);
     expect(await code(issueLiveKitTokenV2(U1, priv({ mapVersion: 1 }), d))).toBe(
       "MAP_VERSION_STALE",
     );
@@ -227,5 +231,48 @@ describe("LiveKit token v2", () => {
       { kind: "OFFLINE" },
     ] as const;
     for (const c of ctxs) expect(rmRoomNameFor(WS, c)).toBe(roomNameFor(WS, c));
+  });
+});
+
+describe("Token V2 — visitante ativo", () => {
+  const V = "55555555-5555-4555-8555-555555555555";
+  const SV = "66666666-6666-4666-8666-666666666666";
+  const vsess = { user_id: V, session_id: SV, generation: 1, workspace_id: WS, active: true };
+  const visitorMap = {
+    data: mapData({ reuniao: 2, feedback: 2, diretoria: 2, supervisao: 2, "atendente-1": 2, descompressao: 2, "custom-work": 2 }),
+    version: 7,
+  };
+  const deps = (visitors: Record<string, string[]> = { [WS]: [V] }) =>
+    makeDeps({ visitors, map: visitorMap, sessions: { [V]: vsess, [U1]: { user_id: U1, session_id: S1, generation: 5, workspace_id: WS, active: true } } });
+  const vreq = (x: Record<string, unknown> = {}) => priv({ sessionId: SV, generation: 1, ...x });
+
+  it("lobby: PASS", async () => {
+    expect(await code(issueLiveKitTokenV2(V, lobby({ sessionId: SV, generation: 1 }), deps()))).toBe("OK");
+  });
+  for (const z of ["diretoria", "supervisao", "atendente-1", "descompressao", "custom-work"])
+    it(`${z}: PASS (Room da zona)`, async () => {
+      const r = await issueLiveKitTokenV2(V, vreq({ zoneId: z }), deps());
+      expect(r.roomName).toBe(roomNameFor(WS, { kind: "PRIVATE_ROOM", zoneId: z }));
+    });
+  for (const z of ["reuniao", "feedback"])
+    it(`${z} (sala de vídeo/reunião): sem token`, async () => {
+      expect(await code(issueLiveKitTokenV2(V, vreq({ zoneId: z }), deps()))).toBe("VISITOR_ZONE_FORBIDDEN");
+    });
+  it("membro continua entrando em reunião e Diretoria", async () => {
+    for (const z of ["reuniao", "diretoria"]) expect(await code(issueLiveKitTokenV2(U1, priv({ zoneId: z }), deps()))).toBe("OK");
+  });
+  it("expirado/revogado/anônimo sem convite (sem runtime): bloqueado", async () => {
+    expect(await code(issueLiveKitTokenV2(V, vreq({ zoneId: "diretoria" }), deps({})))).toBe("NOT_MEMBER");
+  });
+  it("visitante de A não recebe token de B", async () => {
+    expect(await code(issueLiveKitTokenV2(V, vreq({ zoneId: "diretoria", workspaceId: WS2 }), deps()))).toBe("NOT_MEMBER");
+  });
+  it("mapVersion stale, sessão e generation continuam validados", async () => {
+    expect(await code(issueLiveKitTokenV2(V, vreq({ zoneId: "diretoria", mapVersion: 6 }), deps()))).toBe("MAP_VERSION_STALE");
+    expect(await code(issueLiveKitTokenV2(V, vreq({ zoneId: "diretoria", generation: 2 }), deps()))).toBe("SESSION_INVALID");
+    expect(await code(issueLiveKitTokenV2(V, vreq({ zoneId: "diretoria", sessionId: S2 }), deps()))).toBe("SESSION_INVALID");
+  });
+  it("zona inexistente no mapa canônico: recusada", async () => {
+    expect(await code(issueLiveKitTokenV2(V, vreq({ zoneId: "inventada" }), deps()))).toBe("ZONE_NOT_FOUND");
   });
 });
