@@ -23,6 +23,7 @@ const io = vi.hoisted(() => {
   let includeSavedDbPosition = true;
   let ownClaim: string | null = null;
   let visitorMode = false;
+  let rpcIncludesSelf = false;
   const persisted: Record<string, any>[] = [];
   const profiles = [
     {
@@ -107,7 +108,7 @@ const io = vi.hoisted(() => {
   });
   const supabase = {
     from,
-    rpc: vi.fn(async (name: string) => ({ data: name === "workspace_runtime_profiles" ? profiles.filter((p) => p.id === peer) : null, error: null })),
+    rpc: vi.fn(async (name: string) => ({ data: name === "workspace_runtime_profiles" ? (rpcIncludesSelf ? profiles : profiles.filter((p) => p.id === peer)) : null, error: null })),
     realtime: { setAuth: vi.fn(async () => {}) },
     auth: {
       getUser: vi.fn(async () => ({ data: { user: { id: uid } } })),
@@ -180,6 +181,7 @@ const io = vi.hoisted(() => {
       includeSavedDbPosition = value;
     },
     setVisitorMode: (value: boolean) => { visitorMode = value; },
+    setRpcIncludesSelf: (value: boolean) => { rpcIncludesSelf = value; },
   };
 });
 vi.mock("@/integrations/supabase/client", () => ({ supabase: io.supabase }));
@@ -215,6 +217,7 @@ beforeEach(() => {
   io.channels.length = 0;
   io.setSavedDbPosition(true);
   io.setVisitorMode(false);
+  io.setRpcIncludesSelf(false);
   io.supabase.from.mockClear();
   io.supabase.rpc.mockClear();
   io.setOwnClaim(null);
@@ -273,6 +276,7 @@ it("visitor without onboarded_at enters Office directly: no member onboarding no
 it("member without onboarded_at still gets the member onboarding", async () => {
   const prev = io.profiles[0].onboarded_at;
   (io.profiles[0] as any).onboarded_at = null;
+  io.setRpcIncludesSelf(true);
   try {
     io.setMapRead(Promise.resolve({ data: openMap(), version: 1 }));
     const done = await mountScene();
@@ -281,10 +285,20 @@ it("member without onboarded_at still gets the member onboarding", async () => {
   } finally { io.profiles[0].onboarded_at = prev; }
 });
 it("onboarded member does not get the onboarding", async () => {
+  io.setRpcIncludesSelf(true);
   io.setMapRead(Promise.resolve({ data: openMap(), version: 1 }));
   const done = await mountScene();
   await waitFor(() => expect(document.querySelector("[data-office-topbar]")).not.toBeNull());
   await new Promise((r) => setTimeout(r, 50));
+  expect(document.body.textContent).toContain("Fixture");
+  expect(screen.queryByText("Bem-vindo ao Prestativa Office")).toBeNull();
+  done();
+});
+it("member can redo onboarding from the profile menu", async () => {
+  io.setRpcIncludesSelf(true);
+  io.setMapRead(Promise.resolve({ data: openMap(), version: 1 }));
+  const done = await mountScene();
+  await waitFor(() => expect(document.body.textContent).toContain("Fixture"));
   expect(screen.queryByText("Bem-vindo ao Prestativa Office")).toBeNull();
   done();
 });
