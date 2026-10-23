@@ -104,6 +104,8 @@ export type SpriteDef = {
   mirrorLeftFromRight?: boolean;
   /** Quando true, a folha "right" é renderizada espelhando a "left" (padrão para skins novas). */
   mirrorRightFromLeft?: boolean;
+  /** Variante experimental (V5, 1x, 2x) para o construtor de personagens futuro — oculta dos seletores. */
+  variant?: boolean;
 };
 
 export const SPRITES: SpriteDef[] = [
@@ -375,9 +377,9 @@ export const GENDER_GROUPS: { key: "m" | "f"; label: string }[] = [
   { key: "f", label: "Meninas" },
 ];
 
-export function groupSpritesByGender<T extends { gender: "m" | "f" | "n" }>(list: T[]) {
+export function groupSpritesByGender<T extends { gender: "m" | "f" | "n"; variant?: boolean }>(list: T[]) {
   return GENDER_GROUPS.map((g) => ({
     ...g,
-    items: list.filter((s) => s.gender === g.key),
+    items: list.filter((s) => s.gender === g.key && !s.variant),
   })).filter((g) => g.items.length > 0);
 }

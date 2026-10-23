@@ -17,4 +17,13 @@ describe("additional characters", () => {
     expect(getSprite(null).id).toBe("marcio");
     expect(getSprite("unknown").id).toBe("marcio");
   });
+
+  it("hides experimental variants (V5, 1x, 2x) from the selection groups", () => {
+    SPRITES.push({ ...getSprite("marcio"), id: "marcio-2x", label: "Márcio 2x", variant: true });
+    const ids = groupSpritesByGender(SPRITES).flatMap((g) => g.items.map((s) => s.id));
+    expect(ids).not.toContain("marcio-2x");
+    expect(ids).not.toContain("marcio-v5");
+    expect(ids).not.toContain("marcio-r1");
+    expect(ids).toContain("marcio");
+  });
 });
