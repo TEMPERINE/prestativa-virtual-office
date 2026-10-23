@@ -1,4 +1,7 @@
 # Office notice UX
+## Additional characters
+- [x] Process uploaded Jorg and Cat through the existing skin pipeline and register three CDN sheets each; retain existing characters and default.
+- [x] Verify 16 catalog/renderer tests and both characters' CDN assets in all four directions using the existing isolated renderer; preview build OK. No sign-in or publication; selection/save inside authenticated Office not tested.
 ## Anonymous Auth hardening homologation
 - [x] Fix visitor member identity loading via internally authorized four-field workspace_runtime_profiles RPC (0010); initial/lazy/visitor refresh share a loader, member profile reads and separate visitor records unchanged. No direct profiles grants, membership, prior migration, UI/RTC/Chat/Meetings changes.
 - [x] Connected rollback-only visitor-authorization.sql passed: A identities only, B/outsider/expired/revoked denied, exactly four public fields, direct profiles restricted, member identities/visitor visibility and Chat exclusion preserved. 83 test files / 873 tests passed including visitor OfficeScene integration; automatic preview build OK.
