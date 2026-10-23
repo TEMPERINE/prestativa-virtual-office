@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { normalizeMapOverrides } from "@/lib/map-sync";
 import { roomNameFor } from "./room-names";
-import { resolveMeetingZone } from "./canonical-zones";
+import { classifyZone, resolveMeetingZone } from "./canonical-zones";
 import type { MediaContext } from "./media-context";
 
 export const TOKEN_V2_TTL = "10m";
@@ -44,6 +44,7 @@ export type TokenV2ErrorCode =
   | "MAP_VERSION_STALE"
   | "ZONE_NOT_FOUND"
   | "ZONE_NOT_PRIVATE"
+  | "VISITOR_ZONE_FORBIDDEN"
   | "LIVEKIT_NOT_CONFIGURED";
 
 export class TokenV2Error extends Error {
@@ -62,7 +63,10 @@ export type OfficeSessionRow = {
 };
 
 export interface TokenV2Deps {
-  isMember(workspaceId: string, userId: string): Promise<boolean>;
+  /** Acesso ao runtime do Office (membro real OU visitante ativo) — can_access_workspace_runtime. */
+  canAccessRuntime(workspaceId: string, userId: string): Promise<boolean>;
+  /** Membro real do workspace (is_workspace_member). false = visitante ativo. */
+  isWorkspaceMember(workspaceId: string, userId: string): Promise<boolean>;
   getOfficeSession(userId: string): Promise<OfficeSessionRow | null>;
   getCanonicalMap(workspaceId: string): Promise<{ data: unknown; version: number } | null>;
   getDisplayName(userId: string): Promise<string | null>;
@@ -85,7 +89,7 @@ export async function issueLiveKitTokenV2(
   if (!userId) throw new TokenV2Error("UNAUTHENTICATED");
   const input = parseTokenV2Input(raw);
 
-  if (!(await deps.isMember(input.workspaceId, userId))) throw new TokenV2Error("NOT_MEMBER");
+  if (!(await deps.canAccessRuntime(input.workspaceId, userId))) throw new TokenV2Error("NOT_MEMBER");
 
   const s = await deps.getOfficeSession(userId);
   if (
@@ -107,6 +111,9 @@ export async function issueLiveKitTokenV2(
     const map = row ? normalizeMapOverrides(row.data) : null;
     const zone = resolveMeetingZone(map, input.zoneId);
     if (!zone.ok) throw new TokenV2Error(zone.reason);
+    // Visitante: zonas normais liberadas; salas de vídeo/reunião (supportsVideo canônico) não.
+    if (classifyZone(map, zone.zoneId).supportsVideo && !(await deps.isWorkspaceMember(input.workspaceId, userId)))
+      throw new TokenV2Error("VISITOR_ZONE_FORBIDDEN");
     ctx = { kind: "PRIVATE_ROOM", zoneId: zone.zoneId };
   } else {
     ctx = { kind: "LOBBY" };
