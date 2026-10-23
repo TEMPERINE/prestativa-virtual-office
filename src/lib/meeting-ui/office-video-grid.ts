@@ -38,6 +38,7 @@ export function planOfficeVideoGrid(
   const maxCols = Math.min(OFFICE_GRID_MAX_COLS, n);
 
   let best: { cols: number; w: number; fits: boolean } | null = null;
+  let targetCand: { cols: number; w: number; fits: boolean } | null = null;
   for (let cols = 1; cols <= maxCols; cols++) {
     const rows = Math.ceil(n / cols);
     const byW = (W - gap * (cols - 1)) / cols;
@@ -48,6 +49,7 @@ export function planOfficeVideoGrid(
     const score = fits ? w : Math.min(cap, Math.floor(byW));
     if (byW < OFFICE_TILE_MIN_W && cols > 1) continue;
     const cand = { cols, w: fits ? w : Math.max(OFFICE_TILE_MIN_W, Math.min(score, cap)), fits };
+    if (cols === target) targetCand = cand;
     if (!best) { best = cand; continue; }
     if (cand.fits !== best.fits) { if (cand.fits) best = cand; continue; }
     if (!cand.fits) {
@@ -59,6 +61,8 @@ export function planOfficeVideoGrid(
     else if (Math.abs(cand.w - best.w) <= 4 &&
       Math.abs(cand.cols - target) < Math.abs(best.cols - target)) best = cand;
   }
+  // Composição preferida pela quantidade vence se o tile continuar confortável.
+  if (targetCand && targetCand.fits && targetCand.w >= 180) best = targetCand;
   const b = best ?? { cols: 1, w: OFFICE_TILE_MIN_W, fits: false };
   const rows = Math.ceil(n / b.cols);
   const tileWidth = Math.min(b.w, Math.floor((W - gap * (b.cols - 1)) / b.cols)) || OFFICE_TILE_MIN_W;
