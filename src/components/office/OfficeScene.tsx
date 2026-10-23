@@ -4539,7 +4539,8 @@ export function OfficeScene({
         </>
       )}
 
-      {me && (forceOnboarding || !me.onboarded_at) && (
+      {/* Onboarding/prompt de membro: visitante nunca tem onboarded_at (sem profiles) e tem fluxo próprio. */}
+      {me && !isVisitor && (forceOnboarding || !me.onboarded_at) && (
         <OnboardingWizard
           userId={me.id}
           initialName={me.display_name || (myEmail.split("@")[0] ?? "")}
@@ -4547,7 +4548,7 @@ export function OfficeScene({
           notificationService={notifServiceRef.current ?? undefined}
         />
       )}
-      {me && me.onboarded_at && !forceOnboarding && showNotifPrompt && (
+      {me && !isVisitor && me.onboarded_at && !forceOnboarding && showNotifPrompt && (
         <NotificationsPrompt
           userId={me.id}
           notificationService={notifServiceRef.current ?? undefined}

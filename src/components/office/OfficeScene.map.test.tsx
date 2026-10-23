@@ -23,6 +23,7 @@ const io = vi.hoisted(() => {
   let includeSavedDbPosition = true;
   let ownClaim: string | null = null;
   let visitorMode = false;
+  let rpcIncludesSelf = false;
   const persisted: Record<string, any>[] = [];
   const profiles = [
     {
@@ -107,7 +108,7 @@ const io = vi.hoisted(() => {
   });
   const supabase = {
     from,
-    rpc: vi.fn(async (name: string) => ({ data: name === "workspace_runtime_profiles" ? profiles.filter((p) => p.id === peer) : null, error: null })),
+    rpc: vi.fn(async (name: string) => ({ data: name === "workspace_runtime_profiles" ? (rpcIncludesSelf ? profiles : profiles.filter((p) => p.id === peer)) : null, error: null })),
     realtime: { setAuth: vi.fn(async () => {}) },
     auth: {
       getUser: vi.fn(async () => ({ data: { user: { id: uid } } })),
@@ -169,6 +170,7 @@ const io = vi.hoisted(() => {
     uid,
     peer,
     persisted,
+    profiles,
     setMapRead: (p: Promise<unknown>) => {
       mapRead = p;
     },
@@ -179,6 +181,7 @@ const io = vi.hoisted(() => {
       includeSavedDbPosition = value;
     },
     setVisitorMode: (value: boolean) => { visitorMode = value; },
+    setRpcIncludesSelf: (value: boolean) => { rpcIncludesSelf = value; },
   };
 });
 vi.mock("@/integrations/supabase/client", () => ({ supabase: io.supabase }));
@@ -214,6 +217,7 @@ beforeEach(() => {
   io.channels.length = 0;
   io.setSavedDbPosition(true);
   io.setVisitorMode(false);
+  io.setRpcIncludesSelf(false);
   io.supabase.from.mockClear();
   io.supabase.rpc.mockClear();
   io.setOwnClaim(null);
@@ -254,6 +258,51 @@ it("visitor scene loads colleague identities from authorized RPC without reading
   }));
   expect(io.supabase.from.mock.calls.some(([table]) => table === "profiles")).toBe(false);
   expect(io.supabase.from).toHaveBeenCalledWith("workspace_visitors");
+  done();
+});
+it("visitor without onboarded_at enters Office directly: no member onboarding nor notifications prompt", async () => {
+  io.setVisitorMode(true);
+  localStorage.removeItem(`officeNotifSetupDone:${io.uid}`);
+  io.setMapRead(Promise.resolve({ data: openMap(), version: 1 }));
+  const done = await mountScene("visitor");
+  await waitFor(() => expect(document.querySelector("[data-office-topbar]")).not.toBeNull());
+  await new Promise((r) => setTimeout(r, 50));
+  expect(screen.queryByText("Bem-vindo ao Prestativa Office")).toBeNull();
+  expect(screen.queryByText("Não perca nenhum chamado")).toBeNull();
+  expect(screen.queryByText("Refazer onboarding")).toBeNull();
+  expect(io.supabase.from.mock.calls.some(([t]) => t === "profiles")).toBe(false);
+  done();
+});
+it("member without onboarded_at still gets the member onboarding", async () => {
+  const prev = io.profiles[0].onboarded_at;
+  (io.profiles[0] as any).onboarded_at = null;
+  io.setRpcIncludesSelf(true);
+  try {
+    io.setMapRead(Promise.resolve({ data: openMap(), version: 1 }));
+    const done = await mountScene();
+    await waitFor(() => expect(document.body.textContent).toContain("Bem-vindo ao Prestativa Office"), { timeout: 4000 });
+    done();
+  } finally { io.profiles[0].onboarded_at = prev; }
+});
+it("onboarded member does not get the onboarding", async () => {
+  io.setRpcIncludesSelf(true);
+  io.setMapRead(Promise.resolve({ data: openMap(), version: 1 }));
+  const done = await mountScene();
+  await waitFor(() => expect(document.querySelector("[data-office-topbar]")).not.toBeNull());
+  await new Promise((r) => setTimeout(r, 50));
+  expect(document.body.textContent).toContain("Fixture");
+  expect(screen.queryByText("Bem-vindo ao Prestativa Office")).toBeNull();
+  done();
+});
+it("member can redo onboarding from the profile menu", async () => {
+  io.setRpcIncludesSelf(true);
+  io.setMapRead(Promise.resolve({ data: openMap(), version: 1 }));
+  const done = await mountScene();
+  await waitFor(() => expect(document.body.textContent).toContain("Fixture"));
+  expect(screen.queryByText("Bem-vindo ao Prestativa Office")).toBeNull();
+  fireEvent.click(await screen.findByLabelText("Meu perfil"));
+  fireEvent.click(await screen.findByText("Refazer onboarding"));
+  expect(await screen.findByText("Bem-vindo ao Prestativa Office")).toBeTruthy();
   done();
 });
 const saved = () => JSON.parse(localStorage.getItem(`office:last-position:v1:${io.uid}`)!);
