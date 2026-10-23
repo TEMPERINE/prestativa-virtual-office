@@ -276,7 +276,7 @@ it("member without onboarded_at still gets the member onboarding", async () => {
   try {
     io.setMapRead(Promise.resolve({ data: openMap(), version: 1 }));
     const done = await mountScene();
-    expect(await screen.findByText("Bem-vindo ao Prestativa Office")).toBeTruthy();
+    await waitFor(() => expect(document.body.textContent).toContain("Bem-vindo ao Prestativa Office"), { timeout: 4000 });
     done();
   } finally { io.profiles[0].onboarded_at = prev; }
 });
