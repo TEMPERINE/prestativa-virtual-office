@@ -45,6 +45,8 @@ export function useVisitWatch(workspaceId: string | null, userId: string | null)
       .channel(`visit-watch:${userId}`)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "workspace_visitors", filter: `user_id=eq.${userId}` },
         (payload) => apply(payload.new as { expires_at: string; revoked_at: string | null }))
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "workspace_visitors", filter: `user_id=eq.${userId}` },
+        () => apply(null))
       .subscribe();
     const onVisible = () => { if (document.visibilityState === "visible") void check(); };
     document.addEventListener("visibilitychange", onVisible);
