@@ -300,6 +300,9 @@ it("member can redo onboarding from the profile menu", async () => {
   const done = await mountScene();
   await waitFor(() => expect(document.body.textContent).toContain("Fixture"));
   expect(screen.queryByText("Bem-vindo ao Prestativa Office")).toBeNull();
+  fireEvent.click(await screen.findByLabelText("Meu perfil"));
+  fireEvent.click(await screen.findByText("Refazer onboarding"));
+  expect(await screen.findByText("Bem-vindo ao Prestativa Office")).toBeTruthy();
   done();
 });
 const saved = () => JSON.parse(localStorage.getItem(`office:last-position:v1:${io.uid}`)!);
