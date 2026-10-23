@@ -26,7 +26,7 @@ const V5: Record<string, Record<Facing, string>> = {
 for (const id of Object.keys(V5)) {
   if (!SPRITES.some((s) => s.id === `${id}-v5`)) {
     const base = getSprite(id);
-    SPRITES.push({ ...base, id: `${id}-v5`, label: `${base.label} V5`, sheets: V5[id] });
+    SPRITES.push({ ...base, id: `${id}-v5`, label: `${base.label} V5`, sheets: V5[id], variant: true });
   }
 }
 
@@ -39,7 +39,7 @@ for (const id of Object.keys(RUNTIME)) {
     const base = getSprite(id);
     const r = RUNTIME[id][k];
     const sheets = Object.fromEntries(FAC.map((f) => [f, (r[f] ?? r.left)!.src])) as Record<Facing, string>;
-    SPRITES.push({ ...base, id: sid, label: `${base.label} ${k}`, sheets });
+    SPRITES.push({ ...base, id: sid, label: `${base.label} ${k}`, sheets, variant: true });
   }
 }
 

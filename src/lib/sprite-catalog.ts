@@ -375,9 +375,9 @@ export const GENDER_GROUPS: { key: "m" | "f"; label: string }[] = [
   { key: "f", label: "Meninas" },
 ];
 
-export function groupSpritesByGender<T extends { gender: "m" | "f" | "n" }>(list: T[]) {
+export function groupSpritesByGender<T extends { gender: "m" | "f" | "n"; variant?: boolean }>(list: T[]) {
   return GENDER_GROUPS.map((g) => ({
     ...g,
-    items: list.filter((s) => s.gender === g.key),
+    items: list.filter((s) => s.gender === g.key && !s.variant),
   })).filter((g) => g.items.length > 0);
 }

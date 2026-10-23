@@ -121,7 +121,7 @@ function VisitPage() {
       {step === 2 && <>
         <h1 className="text-xl font-semibold mb-4">Escolha seu personagem</h1>
         <div className="grid grid-cols-3 gap-2 max-h-[50dvh] overflow-y-auto">
-          {SPRITES.map((s) => (
+          {SPRITES.filter((s) => !s.variant).map((s) => (
             <button key={s.id} type="button" onClick={() => setSprite(s.id)}
               className={`rounded-xl border-2 p-1 flex flex-col items-center ${sprite === s.id ? "border-primary bg-primary/10" : "border-transparent hover:bg-muted"}`}>
               <SpritePreview spriteId={s.id} animate={sprite === s.id} size={72} />
