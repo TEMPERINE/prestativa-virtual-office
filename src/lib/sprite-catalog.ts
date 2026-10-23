@@ -108,32 +108,6 @@ export type SpriteDef = {
 
 export const SPRITES: SpriteDef[] = [
   {
-    id: "jorg",
-    label: "Jorg",
-    gender: "m",
-    sheets: { down: jorgDownAsset.url, up: jorgUpAsset.url, left: jorgLeftAsset.url, right: jorgLeftAsset.url },
-    dims: {
-      down: { w: 136, h: 232 },
-      up: { w: 128, h: 232 },
-      left: { w: 132, h: 232 },
-      right: { w: 132, h: 232 },
-    },
-    mirrorRightFromLeft: true,
-  },
-  {
-    id: "cat",
-    label: "Cat",
-    gender: "f",
-    sheets: { down: catDownAsset.url, up: catUpAsset.url, left: catLeftAsset.url, right: catLeftAsset.url },
-    dims: {
-      down: { w: 140, h: 236 },
-      up: { w: 136, h: 238 },
-      left: { w: 148, h: 238 },
-      right: { w: 148, h: 238 },
-    },
-    mirrorRightFromLeft: true,
-  },
-  {
     id: "marcio",
     label: "Márcio",
     gender: "m",
@@ -358,6 +332,32 @@ export const SPRITES: SpriteDef[] = [
       up: { w: 142, h: 250 },
       left: { w: 150, h: 248 },
       right: { w: 150, h: 248 },
+    },
+    mirrorRightFromLeft: true,
+  },
+  {
+    id: "jorg",
+    label: "Jorg",
+    gender: "m",
+    sheets: { down: jorgDownAsset.url, up: jorgUpAsset.url, left: jorgLeftAsset.url, right: jorgLeftAsset.url },
+    dims: {
+      down: { w: 136, h: 232 },
+      up: { w: 128, h: 232 },
+      left: { w: 132, h: 232 },
+      right: { w: 132, h: 232 },
+    },
+    mirrorRightFromLeft: true,
+  },
+  {
+    id: "cat",
+    label: "Cat",
+    gender: "f",
+    sheets: { down: catDownAsset.url, up: catUpAsset.url, left: catLeftAsset.url, right: catLeftAsset.url },
+    dims: {
+      down: { w: 140, h: 236 },
+      up: { w: 136, h: 238 },
+      left: { w: 148, h: 238 },
+      right: { w: 148, h: 238 },
     },
     mirrorRightFromLeft: true,
   },
