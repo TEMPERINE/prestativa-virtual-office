@@ -169,6 +169,7 @@ const io = vi.hoisted(() => {
     uid,
     peer,
     persisted,
+    profiles,
     setMapRead: (p: Promise<unknown>) => {
       mapRead = p;
     },
@@ -254,6 +255,37 @@ it("visitor scene loads colleague identities from authorized RPC without reading
   }));
   expect(io.supabase.from.mock.calls.some(([table]) => table === "profiles")).toBe(false);
   expect(io.supabase.from).toHaveBeenCalledWith("workspace_visitors");
+  done();
+});
+it("visitor without onboarded_at enters Office directly: no member onboarding nor notifications prompt", async () => {
+  io.setVisitorMode(true);
+  localStorage.removeItem(`officeNotifSetupDone:${io.uid}`);
+  io.setMapRead(Promise.resolve({ data: openMap(), version: 1 }));
+  const done = await mountScene("visitor");
+  await waitFor(() => expect(document.querySelector("[data-office-topbar]")).not.toBeNull());
+  await new Promise((r) => setTimeout(r, 50));
+  expect(screen.queryByText("Bem-vindo ao Prestativa Office")).toBeNull();
+  expect(screen.queryByText("Não perca nenhum chamado")).toBeNull();
+  expect(screen.queryByText("Refazer onboarding")).toBeNull();
+  expect(io.supabase.from.mock.calls.some(([t]) => t === "profiles")).toBe(false);
+  done();
+});
+it("member without onboarded_at still gets the member onboarding", async () => {
+  const prev = io.profiles[0].onboarded_at;
+  (io.profiles[0] as any).onboarded_at = null;
+  try {
+    io.setMapRead(Promise.resolve({ data: openMap(), version: 1 }));
+    const done = await mountScene();
+    expect(await screen.findByText("Bem-vindo ao Prestativa Office")).toBeTruthy();
+    done();
+  } finally { io.profiles[0].onboarded_at = prev; }
+});
+it("onboarded member does not get the onboarding", async () => {
+  io.setMapRead(Promise.resolve({ data: openMap(), version: 1 }));
+  const done = await mountScene();
+  await waitFor(() => expect(document.querySelector("[data-office-topbar]")).not.toBeNull());
+  await new Promise((r) => setTimeout(r, 50));
+  expect(screen.queryByText("Bem-vindo ao Prestativa Office")).toBeNull();
   done();
 });
 const saved = () => JSON.parse(localStorage.getItem(`office:last-position:v1:${io.uid}`)!);
