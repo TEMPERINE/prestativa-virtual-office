@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_SPRITE_ID, getSprite, groupSpritesByGender, SPRITES } from "./sprite-catalog";
 
 describe("additional characters", () => {
-  it.each([{ id: "jorg", gender: "m" }, { id: "cat", gender: "f" }])("registers $id in its selection group", ({ id, gender }) => {
+  it.each([{ id: "jorg", gender: "m" }, { id: "cat", gender: "f" }, { id: "ned", gender: "m" }])("registers $id in its selection group", ({ id, gender }) => {
     const sprite = getSprite(id);
     expect(sprite.id).toBe(id);
     expect(sprite.gender).toBe(gender);

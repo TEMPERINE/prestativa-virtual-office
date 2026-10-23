@@ -88,6 +88,9 @@ import jorgLeftAsset from "@/assets/sprites/jorg-left.png.asset.json";
 import catDownAsset from "@/assets/sprites/cat-down.png.asset.json";
 import catUpAsset from "@/assets/sprites/cat-up.png.asset.json";
 import catLeftAsset from "@/assets/sprites/cat-left.png.asset.json";
+import nedDownAsset from "@/assets/sprites/ned-down.png.asset.json";
+import nedUpAsset from "@/assets/sprites/ned-up.png.asset.json";
+import nedLeftAsset from "@/assets/sprites/ned-left.png.asset.json";
 
 export type Facing = "up" | "down" | "left" | "right";
 
@@ -360,6 +363,19 @@ export const SPRITES: SpriteDef[] = [
       up: { w: 136, h: 238 },
       left: { w: 148, h: 238 },
       right: { w: 148, h: 238 },
+    },
+    mirrorRightFromLeft: true,
+  },
+  {
+    id: "ned",
+    label: "Ned",
+    gender: "m",
+    sheets: { down: nedDownAsset.url, up: nedUpAsset.url, left: nedLeftAsset.url, right: nedLeftAsset.url },
+    dims: {
+      down: { w: 140, h: 234 },
+      up: { w: 134, h: 230 },
+      left: { w: 134, h: 232 },
+      right: { w: 134, h: 232 },
     },
     mirrorRightFromLeft: true,
   },
