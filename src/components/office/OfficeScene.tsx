@@ -384,6 +384,10 @@ export function OfficeScene({
   // glide between ~120 ms broadcast samples instead of teleporting.
   const remoteWrapRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
   const remoteSmoothRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  // Visitantes revogados/expirados por dado autoritativo do banco: Movement/Presence
+  // atrasados nunca recriam o avatar. Preenchido só por removeRuntimeVisitor.
+  const invalidVisitorIdsRef = useRef<Set<string>>(new Set());
+  const removeRuntimeVisitorRef = useRef<(userId: string) => void>(() => {});
   // RTC v2: predição visual entre eventos de Movement (START/CHANGE/STOP/SYNC).
   // Diagnóstico 14C (temporário): localStorage.rtcMotionTrace = "1" → window.__rtcMotionTrace
   const v2PredictorRef = useRef(
@@ -790,10 +794,11 @@ export function OfficeScene({
   useEffect(() => {
     if (!IS_RTC_V2 || !v2Avatars || !v2Online) return;
     const myId = meIdRef.current;
+    const invalid = invalidVisitorIdsRef.current;
     const now = performance.now();
     const predictor = v2PredictorRef.current;
     for (const [uid, a] of v2Avatars) {
-      if (uid === myId || !v2Online.has(uid)) continue;
+      if (uid === myId || !v2Online.has(uid) || invalid.has(uid)) continue;
       // Só salto explícito (announceJump) usa o efeito de teleporte.
       // POSITION_SYNC/CHANGE/STOP viram correção suave no predictor visual.
       if (predictor.ingest(a, now) === "jump") {
@@ -802,17 +807,18 @@ export function OfficeScene({
       }
     }
     for (const uid of Array.from(predictor.keys())) {
-      if (!v2Avatars.has(uid) || !v2Online.has(uid)) predictor.forget(uid);
+      if (!v2Avatars.has(uid) || !v2Online.has(uid) || invalid.has(uid)) predictor.forget(uid);
     }
     setPositions((prev) => {
       const next: Record<string, RemotePos> = { ...prev };
       for (const [uid, cur] of Object.entries(prev)) {
         if (uid === myId) continue;
+        if (invalid.has(uid)) { delete next[uid]; continue; }
         const online = v2Online.has(uid);
         if (cur.is_online !== online) next[uid] = { ...cur, is_online: online };
       }
       for (const [uid, a] of v2Avatars) {
-        if (uid === myId || !v2Online.has(uid)) continue;
+        if (uid === myId || !v2Online.has(uid) || invalid.has(uid)) continue;
         const cur = prev[uid];
         const facing: Facing = facingFromVector(a.vx, a.vy, cur?.facing ?? "down");
         next[uid] = { user_id: uid, x: a.x, y: a.y, zone: callZoneAt(a), facing, is_online: true, ts: a.seq };
@@ -820,7 +826,7 @@ export function OfficeScene({
       return next;
     });
     setPresentPeerIds((prev) => {
-      const ids = new Set([...v2Online.keys()].filter((id) => id !== myId));
+      const ids = new Set([...v2Online.keys()].filter((id) => id !== myId && !invalid.has(id)));
       if (prev.size === ids.size && [...ids].every((id) => prev.has(id))) return prev;
       return ids;
     });
@@ -1246,6 +1252,7 @@ export function OfficeScene({
         (payload) => {
           const row = (payload.new ?? payload.old) as RemotePos & { updated_at?: string };
           if (!row) return;
+          if (payload.eventType !== "DELETE" && invalidVisitorIdsRef.current.has(row.user_id)) return;
           const rowTs = timestampForPosition(row) || Date.now();
           if (row.is_online) maybeStartRemoteTeleportFromCurrent(row.user_id, { x: row.x, y: row.y }, rowTs);
           setPositions((prev) => {
@@ -2232,6 +2239,56 @@ export function OfficeScene({
   const [hoveredAvatarUid, setHoveredAvatarUid] = useState<string | null>(null);
   const [avatarMenuUid, setAvatarMenuUid] = useState<string | null>(null);
 
+  // Remoção única de visitante revogado/expirado (fonte autoritativa: banco).
+  // Nunca usada para membros; broadcasts comuns não chamam isto.
+  const removeRuntimeVisitor = useCallback((userId: string) => {
+    if (!userId || userId === meIdRef.current) return;
+    invalidVisitorIdsRef.current.add(userId);
+    const omit = <T,>(r: Record<string, T>) => {
+      if (!(userId in r)) return r;
+      const n = { ...r }; delete n[userId]; return n;
+    };
+    setProfiles(omit);
+    setPositions(omit);
+    setReactions(omit);
+    setRaisedHands(omit);
+    setRemoteTeleports(omit);
+    setPresentPeerIds((prev) => {
+      if (!prev.has(userId)) return prev;
+      const n = new Set(prev); n.delete(userId); return n;
+    });
+    v2PredictorRef.current.forget(userId);
+    remoteSmoothRef.current.delete(userId);
+    remoteAnimRef.current.delete(userId);
+    positionFreshTs.current.delete(userId);
+    dbFreshTs.current.delete(userId);
+    setHoveredAvatarUid((u) => (u === userId ? null : u));
+    setAvatarMenuUid((u) => (u === userId ? null : u));
+  }, []);
+  removeRuntimeVisitorRef.current = removeRuntimeVisitor;
+
+  // Realtime de workspace_visitors escopado ao workspace atual.
+  useEffect(() => {
+    const ws = getCurrentWorkspaceId();
+    if (!ws) return;
+    const ch = supabase
+      .channel(`visitors-runtime:${ws}:${Math.random().toString(36).slice(2)}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "workspace_visitors", filter: `workspace_id=eq.${ws}` },
+        (payload) => {
+          const row = payload.new as { user_id?: string; workspace_id?: string; revoked_at?: string | null; expires_at?: string };
+          if (!row?.user_id || row.workspace_id !== ws) return;
+          const expired = row.expires_at ? Date.parse(row.expires_at) <= Date.now() : false;
+          if (row.revoked_at || expired) removeRuntimeVisitor(row.user_id);
+        })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "workspace_visitors", filter: `workspace_id=eq.${ws}` },
+        (payload) => {
+          const row = payload.old as { user_id?: string };
+          if (row?.user_id) removeRuntimeVisitor(row.user_id);
+        })
+      .subscribe();
+    return () => { void supabase.removeChannel(ch); };
+  }, [removeRuntimeVisitor]);
+
   const broadcastFollowStop = useCallback((toUid: string) => {
     const ch = leadChannelRef.current;
     const from = meIdRef.current;
@@ -3042,7 +3099,7 @@ export function OfficeScene({
       if (uid !== meIdRef.current && !profiles[uid]) missing.add(uid);
     }
     for (const uid of presentPeerIds) {
-      if (uid !== meIdRef.current && !profiles[uid]) missing.add(uid);
+      if (uid !== meIdRef.current && !profiles[uid] && !invalidVisitorIdsRef.current.has(uid)) missing.add(uid);
     }
     if (missing.size === 0) return;
     let cancelled = false;
@@ -3075,7 +3132,14 @@ export function OfficeScene({
       pending = true;
       try {
         const [rows, visitors] = await Promise.all([loadOfficeMemberProfiles(ws), loadActiveVisitorProfiles(ws)]);
-        if (!cancelled) setProfiles((prev) => {
+        if (cancelled) return;
+        // Visitante conhecido que saiu da lista ativa (expirou/revogado) some do runtime inteiro.
+        const activeIds = new Set(visitors.map((v) => v.id));
+        const memberIds = new Set(rows.map((r) => r.id));
+        for (const [id, p] of Object.entries(profilesRef.current)) {
+          if (p.is_visitor && id !== meIdRef.current && !activeIds.has(id) && !memberIds.has(id)) removeRuntimeVisitorRef.current(id);
+        }
+        setProfiles((prev) => {
           const selfId = meIdRef.current;
           return buildRuntimeProfileMap<Profile>(rows, visitors, selfId ? prev[selfId] ?? null : null);
         });
