@@ -82,6 +82,12 @@ import karenRight from "@/assets/sprites/karen-right.png";
 import lucasDown from "@/assets/sprites/lucas-down.png";
 import lucasUp from "@/assets/sprites/lucas-up.png";
 import lucasLeft from "@/assets/sprites/lucas-left.png";
+import jorgDownAsset from "@/assets/sprites/jorg-down.png.asset.json";
+import jorgUpAsset from "@/assets/sprites/jorg-up.png.asset.json";
+import jorgLeftAsset from "@/assets/sprites/jorg-left.png.asset.json";
+import catDownAsset from "@/assets/sprites/cat-down.png.asset.json";
+import catUpAsset from "@/assets/sprites/cat-up.png.asset.json";
+import catLeftAsset from "@/assets/sprites/cat-left.png.asset.json";
 
 export type Facing = "up" | "down" | "left" | "right";
 
@@ -101,6 +107,32 @@ export type SpriteDef = {
 };
 
 export const SPRITES: SpriteDef[] = [
+  {
+    id: "jorg",
+    label: "Jorg",
+    gender: "m",
+    sheets: { down: jorgDownAsset.url, up: jorgUpAsset.url, left: jorgLeftAsset.url, right: jorgLeftAsset.url },
+    dims: {
+      down: { w: 136, h: 232 },
+      up: { w: 128, h: 232 },
+      left: { w: 132, h: 232 },
+      right: { w: 132, h: 232 },
+    },
+    mirrorRightFromLeft: true,
+  },
+  {
+    id: "cat",
+    label: "Cat",
+    gender: "f",
+    sheets: { down: catDownAsset.url, up: catUpAsset.url, left: catLeftAsset.url, right: catLeftAsset.url },
+    dims: {
+      down: { w: 140, h: 236 },
+      up: { w: 136, h: 238 },
+      left: { w: 148, h: 238 },
+      right: { w: 148, h: 238 },
+    },
+    mirrorRightFromLeft: true,
+  },
   {
     id: "marcio",
     label: "Márcio",
