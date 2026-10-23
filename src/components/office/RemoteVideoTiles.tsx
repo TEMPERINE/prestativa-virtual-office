@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
-import { Mic, MicOff, VideoOff, Hand } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Mic, MicOff, VideoOff, Hand, Users, ChevronUp, ChevronDown } from "lucide-react";
+import { planOfficeVideoGrid } from "@/lib/meeting-ui/office-video-grid";
 
 type Profile = { id: string; display_name: string; avatar_color: string };
 
@@ -45,32 +46,71 @@ export function RemoteVideoTiles({
   raisedHands = {},
 }: Props) {
   const hasAnyone = !!myId && (connectedPeers.length > 0 || localCamOn || localMicOn);
+  const [collapsed, setCollapsed] = useState(false);
+  const { vw, vh, teamInset } = useGalleryBounds(hasAnyone);
+
+  // Ordem estável: mão levantada primeiro (sort estável), speaking só destaca.
+  const orderedPeers = [...connectedPeers].sort(
+    (a, b) => Number(!!raisedHands[b]) - Number(!!raisedHands[a]),
+  );
+  const count = orderedPeers.length + (myProfile ? 1 : 0);
+  const right = 12 + teamInset;
+  const TOP = 52; // barra superior
+  const BOTTOM = 96; // controles inferiores
+  const availW = Math.max(160, Math.min(vw * 0.42, vw - right - 24));
+  const availH = Math.max(120, vh - TOP - BOTTOM - 36 /* cabeçalho da galeria */);
+  const plan = planOfficeVideoGrid(count, availW, availH);
+  const compact = plan.tileWidth < 190;
 
   return (
     <>
       <HiddenAudioPlayers streams={streams} />
       {hasAnyone && (
         <div
-          className="absolute right-3 z-[110] flex flex-col gap-2 pointer-events-none"
-          style={{ top: "3.25rem", maxHeight: "calc(100vh - 4rem)" }}
+          data-office-video-gallery
+          className="absolute z-[110] flex flex-col items-end gap-1.5 pointer-events-none"
+          style={{
+            top: `${TOP}px`,
+            right: `${right}px`,
+            maxHeight: `calc(100% - ${TOP + BOTTOM}px)`,
+            transition: "right 250ms ease",
+          }}
         >
-          <div className="flex flex-col gap-2 overflow-y-auto pr-1 pointer-events-auto">
-            {/* Self tile */}
-            {myProfile && (
-              <Tile
-                profile={myProfile}
-                stream={localStream}
-                hasVideo={localCamOn && hasLiveVideo(localStream)}
-                micOn={localMicOn}
-                speaking={localMicOn && selfSpeaking}
-                handRaised={!!raisedHands[myProfile.id]}
-                isSelf
-              />
-            )}
-            {/* Remote tiles — pessoas com a mão levantada vão pro topo */}
-            {[...connectedPeers]
-              .sort((a, b) => Number(!!raisedHands[b]) - Number(!!raisedHands[a]))
-              .map((peerId) => {
+          <button
+            type="button"
+            onClick={() => setCollapsed((v) => !v)}
+            className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white shadow-md backdrop-blur-sm hover:bg-black/75"
+            title={collapsed ? "Mostrar vídeos" : "Recolher vídeos"}
+          >
+            <Users className="h-3.5 w-3.5" />
+            <span>{count} na chamada</span>
+            {collapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
+            <span className="sr-only">{collapsed ? "Mostrar vídeos" : "Recolher vídeos"}</span>
+          </button>
+          {!collapsed && (
+            <div
+              className="grid overflow-y-auto pointer-events-auto pr-0.5"
+              style={{
+                gridTemplateColumns: `repeat(${plan.cols}, ${plan.tileWidth}px)`,
+                gap: "8px",
+                maxHeight: `${availH}px`,
+              }}
+            >
+              {myProfile && (
+                <Tile
+                  profile={myProfile}
+                  stream={localStream}
+                  hasVideo={localCamOn && hasLiveVideo(localStream)}
+                  micOn={localMicOn}
+                  speaking={localMicOn && selfSpeaking}
+                  handRaised={!!raisedHands[myProfile.id]}
+                  isSelf
+                  width={plan.tileWidth}
+                  height={plan.tileHeight}
+                  compact={compact}
+                />
+              )}
+              {orderedPeers.map((peerId) => {
                 const profile = profiles[peerId] ?? {
                   id: peerId,
                   display_name: "Convidado",
@@ -86,14 +126,51 @@ export function RemoteVideoTiles({
                     micOn={true}
                     speaking={!!speakingPeers[peerId]}
                     handRaised={!!raisedHands[peerId]}
+                    width={plan.tileWidth}
+                    height={plan.tileHeight}
+                    compact={compact}
                   />
                 );
               })}
-          </div>
+            </div>
+          )}
         </div>
       )}
     </>
   );
+}
+
+/** Mede viewport e o painel Equipe ([data-office-team]) para não ficar por baixo dele. */
+function useGalleryBounds(active: boolean) {
+  const [state, setState] = useState({ vw: 1280, vh: 800, teamInset: 0 });
+  useEffect(() => {
+    if (!active || typeof window === "undefined") return;
+    const measure = () => {
+      const team = document.querySelector<HTMLElement>("[data-office-team]");
+      let teamInset = 0;
+      if (team) {
+        const r = team.getBoundingClientRect();
+        teamInset = Math.max(0, window.innerWidth - r.left);
+      }
+      setState((s) =>
+        s.vw === window.innerWidth && s.vh === window.innerHeight && s.teamInset === teamInset
+          ? s
+          : { vw: window.innerWidth, vh: window.innerHeight, teamInset },
+      );
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    document.addEventListener("fullscreenchange", measure);
+    // Equipe abre/fecha sem resize: observa a árvore e mede de novo.
+    const mo = new MutationObserver(measure);
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      window.removeEventListener("resize", measure);
+      document.removeEventListener("fullscreenchange", measure);
+      mo.disconnect();
+    };
+  }, [active]);
+  return state;
 }
 
 function Tile({
@@ -104,6 +181,9 @@ function Tile({
   speaking,
   handRaised,
   isSelf,
+  width,
+  height,
+  compact,
 }: {
   profile: Profile;
   stream: MediaStream | null;
@@ -112,6 +192,9 @@ function Tile({
   speaking: boolean;
   handRaised?: boolean;
   isSelf?: boolean;
+  width: number;
+  height: number;
+  compact?: boolean;
 }) {
   const borderColor = handRaised
     ? "border-amber-400"
@@ -125,8 +208,10 @@ function Tile({
     : undefined;
   return (
     <div
-      className={`relative w-48 h-28 rounded-xl overflow-hidden shadow-lg border-2 transition-all ${borderColor}`}
+      className={`relative rounded-xl overflow-hidden shadow-lg border-2 transition-all ${borderColor}`}
       style={{
+        width,
+        height,
         background: profile.avatar_color || "#1f2937",
         boxShadow: glow,
       }}
@@ -141,10 +226,12 @@ function Tile({
           >
             {initials(profile.display_name)}
           </div>
-          <div className="flex items-center gap-1 text-[10px] text-white/85">
-            <VideoOff className="w-3 h-3" />
-            <span>sem vídeo</span>
-          </div>
+          {!compact && (
+            <div className="flex items-center gap-1 text-[10px] text-white/85">
+              <VideoOff className="w-3 h-3" />
+              <span>sem vídeo</span>
+            </div>
+          )}
         </div>
       )}
 
