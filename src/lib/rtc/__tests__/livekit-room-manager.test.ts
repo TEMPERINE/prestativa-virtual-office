@@ -375,3 +375,37 @@ describe("LiveKitRoomManager", () => {
     expect(m.setDesiredContext.length).toBe(1);
   });
 });
+
+describe("LiveKitRoomManager — visitante em sala de reunião", () => {
+  it("Lobby → Diretoria → Reunião (neutro, sem retry) → Diretoria → Lobby", async () => {
+    const h = new Harness();
+    const base = h.tokenProvider;
+    const m = new LiveKitRoomManager({
+      tokenProvider: (ctx) =>
+        ctx.kind === "PRIVATE_ROOM" && ctx.zoneId === "reuniao"
+          ? (h.tokenCalls.push("reuniao"), Promise.reject(new Error("VISITOR_ZONE_FORBIDDEN")))
+          : base(ctx),
+      roomFactory: h.factory,
+    });
+    const DIR: MediaContext = { kind: "PRIVATE_ROOM", zoneId: "diretoria" };
+    const REU: MediaContext = { kind: "PRIVATE_ROOM", zoneId: "reuniao" };
+    m.setDesiredContext(LOBBY);
+    await settle(m);
+    m.setDesiredContext(DIR);
+    await settle(m);
+    expect([m.getSnapshot().status, m.getSnapshot().roomName]).toEqual(["CONNECTED", "room:diretoria"]);
+    m.setDesiredContext(REU);
+    await settle(m);
+    m.setDesiredContext(REU);
+    await settle(m);
+    expect([m.getSnapshot().status, m.getSnapshot().error]).toEqual(["DISCONNECTED", null]);
+    expect(h.tokenCalls.filter((c) => c === "reuniao")).toHaveLength(1);
+    expect(h.live()).toHaveLength(0);
+    m.setDesiredContext(DIR);
+    await settle(m);
+    expect(m.getSnapshot().status).toBe("CONNECTED");
+    m.setDesiredContext(LOBBY);
+    await settle(m);
+    expect([m.getSnapshot().status, m.getSnapshot().roomName]).toEqual(["CONNECTED", "room:LOBBY"]);
+  });
+});
