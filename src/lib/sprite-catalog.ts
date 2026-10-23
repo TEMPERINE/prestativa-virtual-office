@@ -104,6 +104,8 @@ export type SpriteDef = {
   mirrorLeftFromRight?: boolean;
   /** Quando true, a folha "right" é renderizada espelhando a "left" (padrão para skins novas). */
   mirrorRightFromLeft?: boolean;
+  /** Variante experimental (V5, 1x, 2x) para o construtor de personagens futuro — oculta dos seletores. */
+  variant?: boolean;
 };
 
 export const SPRITES: SpriteDef[] = [
