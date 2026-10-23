@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
-import { Mic, MicOff, VideoOff, Hand } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Mic, MicOff, VideoOff, Hand, Users, ChevronUp, ChevronDown } from "lucide-react";
+import { planOfficeVideoGrid } from "@/lib/meeting-ui/office-video-grid";
 
 type Profile = { id: string; display_name: string; avatar_color: string };
 
@@ -180,6 +181,9 @@ function Tile({
   speaking,
   handRaised,
   isSelf,
+  width,
+  height,
+  compact,
 }: {
   profile: Profile;
   stream: MediaStream | null;
@@ -188,6 +192,9 @@ function Tile({
   speaking: boolean;
   handRaised?: boolean;
   isSelf?: boolean;
+  width: number;
+  height: number;
+  compact?: boolean;
 }) {
   const borderColor = handRaised
     ? "border-amber-400"
@@ -201,8 +208,10 @@ function Tile({
     : undefined;
   return (
     <div
-      className={`relative w-48 h-28 rounded-xl overflow-hidden shadow-lg border-2 transition-all ${borderColor}`}
+      className={`relative rounded-xl overflow-hidden shadow-lg border-2 transition-all ${borderColor}`}
       style={{
+        width,
+        height,
         background: profile.avatar_color || "#1f2937",
         boxShadow: glow,
       }}
@@ -217,10 +226,12 @@ function Tile({
           >
             {initials(profile.display_name)}
           </div>
-          <div className="flex items-center gap-1 text-[10px] text-white/85">
-            <VideoOff className="w-3 h-3" />
-            <span>sem vídeo</span>
-          </div>
+          {!compact && (
+            <div className="flex items-center gap-1 text-[10px] text-white/85">
+              <VideoOff className="w-3 h-3" />
+              <span>sem vídeo</span>
+            </div>
+          )}
         </div>
       )}
 
