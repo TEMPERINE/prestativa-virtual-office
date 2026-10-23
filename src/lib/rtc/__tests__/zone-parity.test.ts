@@ -148,7 +148,8 @@ describe("paridade de zona v1 × V2 × servidor", () => {
       const WS = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
       const S = "33333333-3333-4333-8333-333333333333";
       const deps = {
-        isMember: async () => true,
+        canAccessRuntime: async () => true,
+        isWorkspaceMember: async () => true,
         getOfficeSession: async () => ({
           user_id: U,
           session_id: S,
