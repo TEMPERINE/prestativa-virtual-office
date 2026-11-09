@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { normalizeMapOverrides } from "@/lib/map-sync";
 import { roomNameFor } from "./room-names";
-import { classifyZone, resolveMeetingZone } from "./canonical-zones";
+import { resolveMeetingZone } from "./canonical-zones";
 import type { MediaContext } from "./media-context";
 
 export const TOKEN_V2_TTL = "10m";
