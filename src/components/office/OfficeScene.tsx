@@ -2933,7 +2933,8 @@ export function OfficeScene({
     zoneLabel: currentZone.label,
     isMeetingZone: isPrivateZone,
     peerCount: desiredPeers.length,
-    enabled: !!me?.id,
+    // Histórico de reuniões é só de membros (RPCs recusam visitantes).
+    enabled: !!me?.id && officeCaps.canUseMeetings,
     v2Room: rtc.v2?.room ?? null,
     v2RemoteCount: RTC_ON_DEMAND_ACTIVE ? (rtc.v2?.remoteCount ?? 0) : undefined,
     labelFor: meetingLabelFor,

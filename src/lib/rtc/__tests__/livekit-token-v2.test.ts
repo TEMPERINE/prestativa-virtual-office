@@ -255,8 +255,9 @@ describe("Token V2 — visitante ativo", () => {
       expect(r.roomName).toBe(roomNameFor(WS, { kind: "PRIVATE_ROOM", zoneId: z }));
     });
   for (const z of ["reuniao", "feedback"])
-    it(`${z} (sala de vídeo/reunião): sem token`, async () => {
-      expect(await code(issueLiveKitTokenV2(V, vreq({ zoneId: z }), deps()))).toBe("VISITOR_ZONE_FORBIDDEN");
+    it(`${z} (sala de vídeo/reunião): PASS (Room da zona)`, async () => {
+      const r = await issueLiveKitTokenV2(V, vreq({ zoneId: z }), deps());
+      expect(r.roomName).toBe(roomNameFor(WS, { kind: "PRIVATE_ROOM", zoneId: z }));
     });
   it("membro continua entrando em reunião e Diretoria", async () => {
     for (const z of ["reuniao", "diretoria"]) expect(await code(issueLiveKitTokenV2(U1, priv({ zoneId: z }), deps()))).toBe("OK");
