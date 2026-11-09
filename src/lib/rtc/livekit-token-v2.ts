@@ -111,9 +111,8 @@ export async function issueLiveKitTokenV2(
     const map = row ? normalizeMapOverrides(row.data) : null;
     const zone = resolveMeetingZone(map, input.zoneId);
     if (!zone.ok) throw new TokenV2Error(zone.reason);
-    // Visitante: zonas normais liberadas; salas de vídeo/reunião (supportsVideo canônico) não.
-    if (classifyZone(map, zone.zoneId).supportsVideo && !(await deps.isWorkspaceMember(input.workspaceId, userId)))
-      throw new TokenV2Error("VISITOR_ZONE_FORBIDDEN");
+    // Visitante ativo (runtime) entra em qualquer zona do mapa canônico, inclusive
+    // salas de vídeo/reunião. VISITOR_ZONE_FORBIDDEN fica só por compatibilidade.
     ctx = { kind: "PRIVATE_ROOM", zoneId: zone.zoneId };
   } else {
     ctx = { kind: "LOBBY" };
